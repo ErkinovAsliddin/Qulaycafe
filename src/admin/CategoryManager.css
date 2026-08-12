@@ -12,6 +12,9 @@
   --cat-primary: #1f7a4d;
   --cat-primary-ink: #ffffff;
   --cat-danger: #b3261e;
+  --cat-danger-bg: #fdecea;
+  --cat-danger-border: #f0bdb8;
+  --cat-danger-ink: #7a1a15;
   --cat-radius: 12px;
   --cat-gap: 12px;
   --cat-touch: 44px;
@@ -64,7 +67,7 @@
 }
 
 .cat-alert--error {
-  background: #fdecea;
+  background: var(--cat-danger-bg);
   border: 1px solid #f5c2bd;
   color: var(--cat-danger);
 }
@@ -162,6 +165,16 @@
   cursor: not-allowed;
 }
 
+/*
+ * The reorder arrows use aria-disabled rather than disabled so they stay
+ * focusable at the ends of the list and while a save is in flight; keyboard
+ * users would otherwise lose their place mid-reorder.
+ */
+.cat-btn[aria-disabled='true'] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .cat-btn:focus-visible {
   outline: 2px solid var(--cat-primary);
   outline-offset: 2px;
@@ -188,12 +201,12 @@
 
 .cat-btn--danger {
   background: #fff;
-  border-color: #f0bdb8;
+  border-color: var(--cat-danger-border);
   color: var(--cat-danger);
 }
 
 .cat-btn--danger:hover:not(:disabled) {
-  background: #fdecea;
+  background: var(--cat-danger-bg);
 }
 
 .cat-btn--icon {
@@ -205,7 +218,7 @@
   line-height: 1;
 }
 
-.cat-btn--icon:hover:not(:disabled) {
+.cat-btn--icon:hover:not(:disabled):not([aria-disabled='true']) {
   background: var(--cat-bg);
 }
 
@@ -285,6 +298,38 @@
   gap: var(--cat-gap);
 }
 
+/* ---------- Inline delete confirmation ---------- */
+
+/*
+ * Replaces window.confirm/alert: those block the main thread and render as an
+ * awkward system sheet on phones, which fights the mobile-first layout.
+ */
+.cat-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--cat-danger-border);
+  border-radius: 10px;
+  background: var(--cat-danger-bg);
+}
+
+.cat-confirm__text {
+  margin: 0;
+  color: var(--cat-danger-ink);
+  font-size: 0.9375rem;
+}
+
+.cat-confirm__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cat-confirm__actions .cat-btn {
+  flex: 1 1 auto;
+}
+
 .cat-empty {
   margin: 0;
   padding: 24px 16px;
@@ -322,6 +367,22 @@
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
+  }
+
+  /* The confirmation drops to its own full-width line below the row. */
+  .cat-row--confirming {
+    flex-wrap: wrap;
+  }
+
+  .cat-confirm {
+    flex: 1 1 100%;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .cat-confirm__actions .cat-btn {
+    flex: 0 0 auto;
   }
 
   .cat-row__edit {

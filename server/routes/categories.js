@@ -2,6 +2,9 @@
 
 const express = require('express');
 
+/** Postgres unique-constraint violation. */
+const UNIQUE_VIOLATION = '23505';
+
 /**
  * Categories router factory.
  *
@@ -53,8 +56,27 @@ function createCategoriesRouter({ pool, requireAdmin } = {}) {
   };
 
   /**
+   * The unique index on lower(name_uz) (migration 002) is the only thing that
+   * reliably stops duplicates under concurrency, so a violation is translated
+   * into a 409 the admin UI can display instead of a generic 500.
+   */
+  const duplicateName = (res) => {
+    const message = 'A category with this Uzbek name already exists.';
+    return res.status(409).json({
+      error: 'CATEGORY_NAME_TAKEN',
+      errors: [message],
+      message,
+    });
+  };
+
+  /**
    * Validates a category payload. Returns { values, errors }.
    * Uzbek name is mandatory; Russian and English fall back to it when blank.
+   *
+   * `sortOrder` is null when the caller omitted the field. Callers are
+   * expected to leave it out: create appends to the end and update keeps the
+   * current position, both computed in SQL so concurrent admins cannot end up
+   * with duplicate positions.
    *
    * `body` may be undefined (no JSON body sent, or express.json() not mounted),
    * so it is normalized before any property access.
@@ -78,11 +100,13 @@ function createCategoriesRouter({ pool, requireAdmin } = {}) {
       errors.push('name_en must be 120 characters or fewer.');
     }
 
-    let sortOrder = 0;
+    let sortOrder = null;
     if (src.sort_order !== undefined && src.sort_order !== null && src.sort_order !== '') {
-      sortOrder = Number(src.sort_order);
-      if (!Number.isInteger(sortOrder) || sortOrder < 0 || sortOrder > 100000) {
+      const parsed = Number(src.sort_order);
+      if (!Number.isInteger(parsed) || parsed < 0 || parsed > 100000) {
         errors.push('sort_order must be an integer between 0 and 100000.');
+      } else {
+        sortOrder = parsed;
       }
     }
 
@@ -163,12 +187,25 @@ function createCategoriesRouter({ pool, requireAdmin } = {}) {
       const { errors, values } = validate(req.body);
       if (errors.length) return res.status(422).json({ errors });
 
-      const { rows } = await pool.query(
-        `INSERT INTO categories (name_uz, name_ru, name_en, sort_order, is_active)
-         VALUES ($1, $2, $3, $4, $5)
-         RETURNING id, name_uz, name_ru, name_en, sort_order, is_active`,
-        [values.nameUz, values.nameRu, values.nameEn, values.sortOrder, values.isActive]
-      );
+      let rows;
+      try {
+        // When sort_order is omitted, append in the same statement so two
+        // admins adding at the same time cannot claim the same position.
+        ({ rows } = await pool.query(
+          `INSERT INTO categories (name_uz, name_ru, name_en, sort_order, is_active)
+           SELECT $1, $2, $3,
+                  COALESCE(
+                    $4::int,
+                    (SELECT COALESCE(MAX(sort_order) + 1, 0) FROM categories)
+                  ),
+                  $5
+           RETURNING id, name_uz, name_ru, name_en, sort_order, is_active`,
+          [values.nameUz, values.nameRu, values.nameEn, values.sortOrder, values.isActive]
+        ));
+      } catch (err) {
+        if (err && err.code === UNIQUE_VIOLATION) return duplicateName(res);
+        throw err;
+      }
 
       res.status(201).json({ data: rows[0] });
     })
@@ -184,18 +221,26 @@ function createCategoriesRouter({ pool, requireAdmin } = {}) {
       const { errors, values } = validate(req.body);
       if (errors.length) return res.status(422).json({ errors });
 
-      const { rows } = await pool.query(
-        `UPDATE categories
-            SET name_uz    = $1,
-                name_ru    = $2,
-                name_en    = $3,
-                sort_order = $4,
-                is_active  = $5,
-                updated_at = NOW()
-          WHERE id = $6
-          RETURNING id, name_uz, name_ru, name_en, sort_order, is_active`,
-        [values.nameUz, values.nameRu, values.nameEn, values.sortOrder, values.isActive, id]
-      );
+      let rows;
+      try {
+        // An omitted sort_order keeps the stored position, so saving an edit
+        // cannot silently undo a reorder made in the meantime.
+        ({ rows } = await pool.query(
+          `UPDATE categories
+              SET name_uz    = $1,
+                  name_ru    = $2,
+                  name_en    = $3,
+                  sort_order = COALESCE($4::int, sort_order),
+                  is_active  = $5,
+                  updated_at = NOW()
+            WHERE id = $6
+            RETURNING id, name_uz, name_ru, name_en, sort_order, is_active`,
+          [values.nameUz, values.nameRu, values.nameEn, values.sortOrder, values.isActive, id]
+        ));
+      } catch (err) {
+        if (err && err.code === UNIQUE_VIOLATION) return duplicateName(res);
+        throw err;
+      }
 
       if (!rows.length) return res.status(404).json({ error: 'Category not found.' });
       res.json({ data: rows[0] });

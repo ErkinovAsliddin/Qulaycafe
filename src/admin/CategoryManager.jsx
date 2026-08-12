@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ApiError,
   createCategory,
@@ -33,6 +33,11 @@ export default function CategoryManager() {
   const [editForm, setEditForm] = useState(EMPTY_FORM);
   const [editErrors, setEditErrors] = useState([]);
   const [busyId, setBusyId] = useState(null);
+  const [confirmingId, setConfirmingId] = useState(null);
+
+  const listRef = useRef(null);
+  // Remembers which reorder button to re-focus once the list re-renders.
+  const pendingFocus = useRef(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -65,11 +70,37 @@ export default function CategoryManager() {
     [categories]
   );
 
+  /**
+   * Reordering re-inserts the row's DOM node, which can drop keyboard focus.
+   * Put it back on the same arrow button so repeated presses keep working.
+   */
+  useEffect(() => {
+    const target = pendingFocus.current;
+    if (!target || !listRef.current) return;
+    pendingFocus.current = null;
+    const button = listRef.current.querySelector(
+      `[data-move="${target.move}"][data-cat-id="${target.id}"]`
+    );
+    if (button) button.focus();
+  }, [sorted]);
+
   function validateLocally(values) {
     const problems = [];
     if (!values.name_uz.trim()) problems.push('Uzbek name is required.');
     if (values.name_uz.trim().length > 120) problems.push('Uzbek name is too long.');
     return problems;
+  }
+
+  function errorList(err) {
+    if (
+      err instanceof ApiError &&
+      err.payload &&
+      Array.isArray(err.payload.errors) &&
+      err.payload.errors.length
+    ) {
+      return err.payload.errors;
+    }
+    return [err.message || 'Something went wrong.'];
   }
 
   async function handleCreate(event) {
@@ -83,19 +114,14 @@ export default function CategoryManager() {
     setCreateErrors([]);
     setSaving(true);
     try {
-      const created = await createCategory({
-        ...createForm,
-        sort_order: sorted.length,
-      });
-      setCategories((prev) => [...prev, created]);
+      // sort_order is intentionally omitted: the server appends to the end in
+      // a single statement, so two admins adding at once cannot collide.
+      const created = await createCategory(createForm);
+      setCategories((prev) => [...prev, { dish_count: 0, ...created }]);
       setCreateForm(EMPTY_FORM);
       setNotice(`Added "${created.name_uz}".`);
     } catch (err) {
-      const list =
-        err instanceof ApiError && err.payload && Array.isArray(err.payload.errors)
-          ? err.payload.errors
-          : [err.message];
-      setCreateErrors(list);
+      setCreateErrors(errorList(err));
     } finally {
       setSaving(false);
     }
@@ -104,6 +130,7 @@ export default function CategoryManager() {
   function startEdit(category) {
     setEditingId(category.id);
     setEditErrors([]);
+    setConfirmingId(null);
     setEditForm({
       name_uz: category.name_uz || '',
       name_ru: category.name_ru || '',
@@ -129,10 +156,9 @@ export default function CategoryManager() {
     setEditErrors([]);
     setBusyId(category.id);
     try {
-      const updated = await updateCategory(category.id, {
-        ...editForm,
-        sort_order: category.sort_order,
-      });
+      // sort_order is omitted so saving an edit cannot write back a stale
+      // position and undo a reorder made elsewhere in the meantime.
+      const updated = await updateCategory(category.id, editForm);
       setCategories((prev) =>
         prev.map((item) =>
           item.id === updated.id ? { ...item, ...updated } : item
@@ -141,11 +167,7 @@ export default function CategoryManager() {
       setNotice(`Saved "${updated.name_uz}".`);
       cancelEdit();
     } catch (err) {
-      const list =
-        err instanceof ApiError && err.payload && Array.isArray(err.payload.errors)
-          ? err.payload.errors
-          : [err.message];
-      setEditErrors(list);
+      setEditErrors(errorList(err));
     } finally {
       setBusyId(null);
     }
@@ -153,23 +175,16 @@ export default function CategoryManager() {
 
   async function handleDelete(category) {
     const label = category.name_uz;
-    if (category.dish_count > 0) {
-      window.alert(
-        `"${label}" still contains ${category.dish_count} dish(es). ` +
-          'Move or delete those dishes first, or switch the category off instead.'
-      );
-      return;
-    }
-    if (!window.confirm(`Delete "${label}"? This cannot be undone.`)) return;
-
     setBusyId(category.id);
     setError('');
     try {
       await deleteCategory(category.id);
       setCategories((prev) => prev.filter((item) => item.id !== category.id));
+      setConfirmingId(null);
       setNotice(`Deleted "${label}".`);
     } catch (err) {
       setError(err.message || 'Could not delete this category.');
+      setConfirmingId(null);
       // The server is the source of truth on dish counts; resync.
       refresh();
     } finally {
@@ -178,6 +193,10 @@ export default function CategoryManager() {
   }
 
   async function move(category, direction) {
+    // The arrow buttons stay focusable (aria-disabled) so keyboard users do not
+    // lose their place, which means the no-op cases are guarded here instead.
+    if (busyId) return;
+
     const index = sorted.findIndex((item) => item.id === category.id);
     const target = index + direction;
     if (index < 0 || target < 0 || target >= sorted.length) return;
@@ -187,6 +206,10 @@ export default function CategoryManager() {
     const reindexed = next.map((item, i) => ({ ...item, sort_order: i }));
 
     const previous = categories;
+    pendingFocus.current = {
+      id: category.id,
+      move: direction < 0 ? 'up' : 'down',
+    };
     setCategories(reindexed); // optimistic
     setBusyId(category.id);
     try {
@@ -307,13 +330,21 @@ export default function CategoryManager() {
       ) : !sorted.length ? (
         <p className="cat-empty">No categories yet. Add your first one above.</p>
       ) : (
-        <ul className="cat-list">
+        <ul className="cat-list" ref={listRef}>
           {sorted.map((category, index) => {
             const isEditing = editingId === category.id;
             const isBusy = busyId === category.id;
+            const isConfirming = confirmingId === category.id;
+            const dishCount = category.dish_count || 0;
+            const blocksDelete = dishCount > 0;
+            const atTop = index === 0;
+            const atBottom = index === sorted.length - 1;
 
             return (
-              <li className="cat-card cat-row" key={category.id}>
+              <li
+                className={`cat-card cat-row${isConfirming ? ' cat-row--confirming' : ''}`}
+                key={category.id}
+              >
                 {isEditing ? (
                   <form
                     className="cat-row__edit"
@@ -414,9 +445,7 @@ export default function CategoryManager() {
                         {category.name_ru} · {category.name_en}
                       </span>
                       <span className="cat-row__meta">
-                        {category.dish_count === 1
-                          ? '1 dish'
-                          : `${category.dish_count || 0} dishes`}
+                        {dishCount === 1 ? '1 dish' : `${dishCount} dishes`}
                         {category.is_active ? null : (
                           <span className="cat-badge cat-badge--muted">Hidden</span>
                         )}
@@ -427,8 +456,10 @@ export default function CategoryManager() {
                       <button
                         className="cat-btn cat-btn--icon"
                         type="button"
+                        data-move="up"
+                        data-cat-id={category.id}
                         onClick={() => move(category, -1)}
-                        disabled={isBusy || index === 0}
+                        aria-disabled={isBusy || atTop}
                         aria-label={`Move ${category.name_uz} up`}
                       >
                         ↑
@@ -436,8 +467,10 @@ export default function CategoryManager() {
                       <button
                         className="cat-btn cat-btn--icon"
                         type="button"
+                        data-move="down"
+                        data-cat-id={category.id}
                         onClick={() => move(category, 1)}
-                        disabled={isBusy || index === sorted.length - 1}
+                        aria-disabled={isBusy || atBottom}
                         aria-label={`Move ${category.name_uz} down`}
                       >
                         ↓
@@ -453,12 +486,72 @@ export default function CategoryManager() {
                       <button
                         className="cat-btn cat-btn--danger"
                         type="button"
-                        onClick={() => handleDelete(category)}
-                        disabled={isBusy}
+                        onClick={() => setConfirmingId(category.id)}
+                        disabled={isBusy || isConfirming}
+                        aria-expanded={isConfirming}
                       >
                         {isBusy ? '…' : 'Delete'}
                       </button>
                     </div>
+
+                    {isConfirming ? (
+                      <div
+                        className="cat-confirm"
+                        role="alert"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape' && !isBusy) {
+                            e.stopPropagation();
+                            setConfirmingId(null);
+                          }
+                        }}
+                      >
+                        {blocksDelete ? (
+                          <>
+                            <p className="cat-confirm__text">
+                              {`"${category.name_uz}" still contains ${dishCount} ` +
+                                `${dishCount === 1 ? 'dish' : 'dishes'}. Move or ` +
+                                'delete those dishes first, or switch this category ' +
+                                'off instead.'}
+                            </p>
+                            <div className="cat-confirm__actions">
+                              <button
+                                className="cat-btn cat-btn--ghost"
+                                type="button"
+                                autoFocus
+                                onClick={() => setConfirmingId(null)}
+                              >
+                                Got it
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <p className="cat-confirm__text">
+                              {`Delete "${category.name_uz}"? This cannot be undone.`}
+                            </p>
+                            <div className="cat-confirm__actions">
+                              <button
+                                className="cat-btn cat-btn--ghost"
+                                type="button"
+                                autoFocus
+                                onClick={() => setConfirmingId(null)}
+                                disabled={isBusy}
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                className="cat-btn cat-btn--danger"
+                                type="button"
+                                onClick={() => handleDelete(category)}
+                                disabled={isBusy}
+                              >
+                                {isBusy ? 'Deleting…' : 'Yes, delete'}
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    ) : null}
                   </>
                 )}
               </li>
