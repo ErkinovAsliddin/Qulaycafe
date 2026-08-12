@@ -41,12 +41,16 @@ function createCategoriesRouter({ pool, requireAdmin } = {}) {
   /**
    * Validates a category payload. Returns { values, errors }.
    * Uzbek name is mandatory; Russian and English fall back to it when blank.
+   *
+   * `body` may be undefined (no JSON body sent, or express.json() not mounted),
+   * so it is normalized before any property access.
    */
   function validate(body) {
+    const src = body && typeof body === 'object' ? body : {};
     const errors = [];
-    const nameUz = trimOrNull(body && body.name_uz);
-    const nameRu = trimOrNull(body && body.name_ru);
-    const nameEn = trimOrNull(body && body.name_en);
+    const nameUz = trimOrNull(src.name_uz);
+    const nameRu = trimOrNull(src.name_ru);
+    const nameEn = trimOrNull(src.name_en);
 
     if (!nameUz) {
       errors.push('name_uz is required.');
@@ -61,14 +65,14 @@ function createCategoriesRouter({ pool, requireAdmin } = {}) {
     }
 
     let sortOrder = 0;
-    if (body && body.sort_order !== undefined && body.sort_order !== null && body.sort_order !== '') {
-      sortOrder = Number(body.sort_order);
+    if (src.sort_order !== undefined && src.sort_order !== null && src.sort_order !== '') {
+      sortOrder = Number(src.sort_order);
       if (!Number.isInteger(sortOrder) || sortOrder < 0 || sortOrder > 100000) {
         errors.push('sort_order must be an integer between 0 and 100000.');
       }
     }
 
-    const isActive = body && body.is_active === undefined ? true : Boolean(body.is_active);
+    const isActive = src.is_active === undefined ? true : Boolean(src.is_active);
 
     return {
       errors,

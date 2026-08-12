@@ -19,13 +19,17 @@ export class ApiError extends Error {
 }
 
 async function request(path, options = {}) {
+  // Destructure `headers` out so caller-supplied headers merge with the
+  // defaults instead of replacing them (which would drop Content-Type).
+  const { headers, ...rest } = options;
+
   const response = await fetch(`${ENDPOINT}${path}`, {
     credentials: 'include',
+    ...rest,
     headers: {
       'Content-Type': 'application/json',
-      ...(options.headers || {}),
+      ...(headers || {}),
     },
-    ...options,
   });
 
   if (response.status === 204) return null;
