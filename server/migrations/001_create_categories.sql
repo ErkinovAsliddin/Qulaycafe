@@ -18,11 +18,17 @@ CREATE INDEX IF NOT EXISTS categories_sort_order_idx
 CREATE INDEX IF NOT EXISTS categories_is_active_idx
     ON categories (is_active);
 
--- Seed the two categories you already have. Safe to re-run.
+-- Seed the two categories you already have. Safe to re-run: each row is
+-- inserted only when no category with the same Uzbek name exists yet.
 INSERT INTO categories (name_uz, name_ru, name_en, sort_order)
-SELECT 'Birinchi taom', 'Первое блюдо', 'First course', 0
- WHERE NOT EXISTS (SELECT 1 FROM categories WHERE name_uz = 'Birinchi taom');
-
-INSERT INTO categories (name_uz, name_ru, name_en, sort_order)
-SELECT 'Ikkinchi taom', 'Второе блюдо', 'Second course', 1
- WHERE NOT EXISTS (SELECT 1 FROM categories WHERE name_uz = 'Ikkinchi taom');
+SELECT seed.name_uz, seed.name_ru, seed.name_en, seed.sort_order
+  FROM (
+        VALUES
+            ('Birinchi taom', 'Первое блюдо',  'First course',  0),
+            ('Ikkinchi taom', 'Второе блюдо',  'Second course', 1)
+       ) AS seed (name_uz, name_ru, name_en, sort_order)
+ WHERE NOT EXISTS (
+           SELECT 1
+             FROM categories c
+            WHERE c.name_uz = seed.name_uz
+       );
