@@ -23,11 +23,19 @@ async function request(path, options = {}) {
   // defaults instead of replacing them (which would drop Content-Type).
   const { headers, ...rest } = options;
 
+  // Only declare a JSON content type when we are actually sending a body.
+  // GET and DELETE carry no payload, so advertising one is misleading and can
+  // trigger unnecessary CORS preflights.
+  const defaultHeaders =
+    rest.body === undefined || rest.body === null
+      ? {}
+      : { 'Content-Type': 'application/json' };
+
   const response = await fetch(`${ENDPOINT}${path}`, {
     credentials: 'include',
     ...rest,
     headers: {
-      'Content-Type': 'application/json',
+      ...defaultHeaders,
       ...(headers || {}),
     },
   });
