@@ -1,0 +1,352 @@
+/*
+ * Mobile-first styling for the admin category manager.
+ * Scoped under .cat-* so it will not collide with existing admin styles.
+ */
+
+.cat-manager {
+  --cat-bg: #f6f7f9;
+  --cat-surface: #ffffff;
+  --cat-border: #e3e6ea;
+  --cat-text: #1c2024;
+  --cat-muted: #6b7280;
+  --cat-primary: #1f7a4d;
+  --cat-primary-ink: #ffffff;
+  --cat-danger: #b3261e;
+  --cat-radius: 12px;
+  --cat-gap: 12px;
+  --cat-touch: 44px;
+
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 16px 16px 96px; /* bottom room for mobile nav bars */
+  color: var(--cat-text);
+  font-size: 16px; /* 16px prevents iOS zoom-on-focus */
+  line-height: 1.45;
+}
+
+.cat-manager *,
+.cat-manager *::before,
+.cat-manager *::after {
+  box-sizing: inherit;
+}
+
+.cat-manager__header {
+  margin-bottom: 20px;
+}
+
+.cat-manager__title {
+  margin: 0 0 4px;
+  font-size: 1.5rem;
+  font-weight: 650;
+}
+
+.cat-manager__subtitle {
+  margin: 0;
+  color: var(--cat-muted);
+  font-size: 0.9375rem;
+}
+
+/* ---------- Alerts ---------- */
+
+.cat-alert {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: var(--cat-radius);
+  font-size: 0.9375rem;
+}
+
+.cat-alert--success {
+  background: #e7f4ec;
+  border: 1px solid #bfe0cd;
+  color: #14522f;
+}
+
+.cat-alert--error {
+  background: #fdecea;
+  border: 1px solid #f5c2bd;
+  color: var(--cat-danger);
+}
+
+/* ---------- Surfaces ---------- */
+
+.cat-card {
+  background: var(--cat-surface);
+  border: 1px solid var(--cat-border);
+  border-radius: var(--cat-radius);
+  padding: 16px;
+}
+
+.cat-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cat-gap);
+  margin-bottom: 24px;
+}
+
+.cat-form__title {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+
+/* ---------- Fields ---------- */
+
+.cat-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cat-label {
+  font-size: 0.875rem;
+  font-weight: 550;
+  color: var(--cat-muted);
+}
+
+.cat-input {
+  width: 100%;
+  min-height: var(--cat-touch);
+  padding: 10px 12px;
+  border: 1px solid var(--cat-border);
+  border-radius: 10px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+}
+
+.cat-input:focus-visible {
+  outline: 2px solid var(--cat-primary);
+  outline-offset: 1px;
+  border-color: var(--cat-primary);
+}
+
+.cat-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--cat-touch);
+  font-size: 0.9375rem;
+  cursor: pointer;
+}
+
+.cat-checkbox input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--cat-primary);
+}
+
+.cat-errors {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--cat-danger);
+  font-size: 0.875rem;
+}
+
+/* ---------- Buttons ---------- */
+
+.cat-btn {
+  min-height: var(--cat-touch);
+  padding: 10px 16px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font: inherit;
+  font-weight: 550;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.cat-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.cat-btn:focus-visible {
+  outline: 2px solid var(--cat-primary);
+  outline-offset: 2px;
+}
+
+.cat-btn--primary {
+  background: var(--cat-primary);
+  color: var(--cat-primary-ink);
+}
+
+.cat-btn--primary:hover:not(:disabled) {
+  background: #196340;
+}
+
+.cat-btn--ghost {
+  background: #fff;
+  border-color: var(--cat-border);
+  color: var(--cat-text);
+}
+
+.cat-btn--ghost:hover:not(:disabled) {
+  background: var(--cat-bg);
+}
+
+.cat-btn--danger {
+  background: #fff;
+  border-color: #f0bdb8;
+  color: var(--cat-danger);
+}
+
+.cat-btn--danger:hover:not(:disabled) {
+  background: #fdecea;
+}
+
+.cat-btn--icon {
+  min-width: var(--cat-touch);
+  padding: 10px;
+  background: #fff;
+  border-color: var(--cat-border);
+  font-size: 1.125rem;
+  line-height: 1;
+}
+
+.cat-btn--icon:hover:not(:disabled) {
+  background: var(--cat-bg);
+}
+
+/* ---------- List ---------- */
+
+.cat-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cat-gap);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cat-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cat-gap);
+}
+
+.cat-row__main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cat-row__name {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.cat-row__translations {
+  color: var(--cat-muted);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
+.cat-row__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  color: var(--cat-muted);
+  font-size: 0.8125rem;
+}
+
+.cat-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 550;
+}
+
+.cat-badge--muted {
+  background: var(--cat-bg);
+  border: 1px solid var(--cat-border);
+  color: var(--cat-muted);
+}
+
+/* Actions wrap onto their own line on phones and stay thumb-sized. */
+.cat-row__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cat-row__actions .cat-btn--ghost,
+.cat-row__actions .cat-btn--danger {
+  flex: 1 1 auto;
+}
+
+.cat-row__edit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cat-gap);
+}
+
+.cat-empty {
+  margin: 0;
+  padding: 24px 16px;
+  border: 1px dashed var(--cat-border);
+  border-radius: var(--cat-radius);
+  color: var(--cat-muted);
+  text-align: center;
+}
+
+/* ---------- Tablet and up ---------- */
+
+@media (min-width: 720px) {
+  .cat-manager {
+    padding: 24px 24px 48px;
+  }
+
+  .cat-form {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    align-items: end;
+  }
+
+  .cat-form__title,
+  .cat-form .cat-errors,
+  .cat-form .cat-btn--primary {
+    grid-column: 1 / -1;
+  }
+
+  .cat-form .cat-btn--primary {
+    justify-self: start;
+    min-width: 180px;
+  }
+
+  .cat-row {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .cat-row__edit {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: end;
+    width: 100%;
+  }
+
+  .cat-row__edit .cat-field {
+    flex: 1 1 200px;
+  }
+
+  .cat-row__actions {
+    flex-wrap: nowrap;
+  }
+
+  .cat-row__actions .cat-btn--ghost,
+  .cat-row__actions .cat-btn--danger {
+    flex: 0 0 auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cat-btn {
+    transition: none;
+  }
+}
