@@ -122,8 +122,10 @@ export default function CategoryManager() {
     setCreateErrors([]);
     setSaving(true);
     try {
-      // sort_order is intentionally omitted: the server appends to the end in
-      // a single statement, so two admins adding at once cannot collide.
+      // sort_order is intentionally omitted so the server assigns the next
+      // position itself. It does that under an advisory lock -- a single
+      // MAX(sort_order) + 1 statement is not enough on its own, because
+      // concurrent inserts read the same snapshot and derive the same value.
       const created = await createCategory(createForm);
       setCategories((prev) => [...prev, { dish_count: 0, ...created }]);
       setCreateForm(EMPTY_FORM);
@@ -204,6 +206,9 @@ export default function CategoryManager() {
   async function move(category, direction) {
     // The arrow buttons stay focusable (aria-disabled) so keyboard users do not
     // lose their place, which means the no-op cases are guarded here instead.
+    // Any in-flight request blocks a move, not just one on this row: the server
+    // rejects a reorder that does not cover every category, so a move queued
+    // behind a create or delete would be working from a list it cannot submit.
     if (busyId) return;
 
     const index = sorted.findIndex((item) => item.id === category.id);
@@ -237,6 +242,9 @@ export default function CategoryManager() {
       setBusyId(null);
     }
   }
+
+  // Any pending request disables every arrow, matching the guard in move().
+  const anyBusy = Boolean(busyId);
 
   return (
     <section className="cat-manager">
@@ -475,7 +483,7 @@ export default function CategoryManager() {
                         data-move="up"
                         data-cat-id={category.id}
                         onClick={() => move(category, -1)}
-                        aria-disabled={isBusy || atTop}
+                        aria-disabled={anyBusy || atTop}
                         aria-label={`Move ${category.name_uz} up`}
                       >
                         ↑
@@ -486,7 +494,7 @@ export default function CategoryManager() {
                         data-move="down"
                         data-cat-id={category.id}
                         onClick={() => move(category, 1)}
-                        aria-disabled={isBusy || atBottom}
+                        aria-disabled={anyBusy || atBottom}
                         aria-label={`Move ${category.name_uz} down`}
                       >
                         ↓
