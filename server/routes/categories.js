@@ -6,6 +6,24 @@ const express = require('express');
 const UNIQUE_VIOLATION = '23505';
 
 /**
+ * Advisory lock key guarding sort_order assignment.
+ *
+ * Any arbitrary constant works; it only has to be the same everywhere in this
+ * file. Kept distinct from other advisory locks in the app.
+ */
+const SORT_ORDER_LOCK_KEY = 7241001;
+
+/** Error that carries the HTTP status and body to send back. */
+class HttpError extends Error {
+  constructor(status, payload) {
+    super((payload && (payload.message || payload.error)) || 'Request failed.');
+    this.name = 'HttpError';
+    this.status = status;
+    this.payload = payload;
+  }
+}
+
+/**
  * Categories router factory.
  *
  * @param {object} deps
@@ -31,9 +49,58 @@ function createCategoriesRouter({ pool, requireAdmin } = {}) {
   const DISHES_TABLE = 'dishes';
   const DISHES_FK = 'category_id';
 
+  /**
+   * Wraps a handler so a thrown HttpError becomes its status and body, and
+   * anything else reaches the app error handler.
+   */
   const asyncRoute = (handler) => (req, res, next) => {
-    Promise.resolve(handler(req, res, next)).catch(next);
+    Promise.resolve(handler(req, res, next)).catch((err) => {
+      if (err instanceof HttpError && !res.headersSent) {
+        return res.status(err.status).json(err.payload);
+      }
+      return next(err);
+    });
   };
+
+  /**
+   * Runs `handler` inside a transaction. Throwing (including HttpError, used
+   * for validation failures that need the transaction abandoned) rolls back.
+   *
+   * The rollback is guarded so a failure while unwinding cannot replace the
+   * original error with a less informative one.
+   */
+  async function withTransaction(handler) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await handler(client);
+      await client.query('COMMIT');
+      return result;
+    } catch (err) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackErr) {
+        // Surface the original failure; the connection is discarded below.
+      }
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Serializes everything that assigns sort_order: create, update with an
+   * explicit position, and reorder.
+   *
+   * Computing a position from MAX(sort_order) is not safe on its own, even in
+   * a single statement: concurrent transactions read the same snapshot and
+   * derive the same next position. Row locks do not close the gap either,
+   * because they cannot block an INSERT, so a category created mid-reorder
+   * would escape the reorder's completeness check and keep a colliding
+   * position. The lock is released when the transaction ends.
+   */
+  const lockSortOrder = (client) =>
+    client.query('SELECT pg_advisory_xact_lock($1)', [SORT_ORDER_LOCK_KEY]);
 
   const trimOrNull = (value) => {
     if (typeof value !== 'string') return null;
@@ -75,8 +142,8 @@ function createCategoriesRouter({ pool, requireAdmin } = {}) {
    *
    * `sortOrder` is null when the caller omitted the field. Callers are
    * expected to leave it out: create appends to the end and update keeps the
-   * current position, both computed in SQL so concurrent admins cannot end up
-   * with duplicate positions.
+   * current position, both computed in SQL under the advisory lock so
+   * concurrent admins cannot end up with duplicate positions.
    *
    * `body` may be undefined (no JSON body sent, or express.json() not mounted),
    * so it is normalized before any property access.
@@ -187,27 +254,33 @@ function createCategoriesRouter({ pool, requireAdmin } = {}) {
       const { errors, values } = validate(req.body);
       if (errors.length) return res.status(422).json({ errors });
 
-      let rows;
+      let created;
       try {
-        // When sort_order is omitted, append in the same statement so two
-        // admins adding at the same time cannot claim the same position.
-        ({ rows } = await pool.query(
-          `INSERT INTO categories (name_uz, name_ru, name_en, sort_order, is_active)
-           SELECT $1, $2, $3,
-                  COALESCE(
-                    $4::int,
-                    (SELECT COALESCE(MAX(sort_order) + 1, 0) FROM categories)
-                  ),
-                  $5
-           RETURNING id, name_uz, name_ru, name_en, sort_order, is_active`,
-          [values.nameUz, values.nameRu, values.nameEn, values.sortOrder, values.isActive]
-        ));
+        created = await withTransaction(async (client) => {
+          // Hold the lock even when the caller supplied an explicit position,
+          // so a create can never interleave with a reorder.
+          await lockSortOrder(client);
+
+          const { rows } = await client.query(
+            `INSERT INTO categories (name_uz, name_ru, name_en, sort_order, is_active)
+             SELECT $1, $2, $3,
+                    COALESCE(
+                      $4::int,
+                      (SELECT COALESCE(MAX(sort_order) + 1, 0) FROM categories)
+                    ),
+                    $5
+             RETURNING id, name_uz, name_ru, name_en, sort_order, is_active`,
+            [values.nameUz, values.nameRu, values.nameEn, values.sortOrder, values.isActive]
+          );
+
+          return rows[0];
+        });
       } catch (err) {
         if (err && err.code === UNIQUE_VIOLATION) return duplicateName(res);
         throw err;
       }
 
-      res.status(201).json({ data: rows[0] });
+      res.status(201).json({ data: created });
     })
   );
 
@@ -221,29 +294,40 @@ function createCategoriesRouter({ pool, requireAdmin } = {}) {
       const { errors, values } = validate(req.body);
       if (errors.length) return res.status(422).json({ errors });
 
-      let rows;
+      let updated;
       try {
-        // An omitted sort_order keeps the stored position, so saving an edit
-        // cannot silently undo a reorder made in the meantime.
-        ({ rows } = await pool.query(
-          `UPDATE categories
-              SET name_uz    = $1,
-                  name_ru    = $2,
-                  name_en    = $3,
-                  sort_order = COALESCE($4::int, sort_order),
-                  is_active  = $5,
-                  updated_at = NOW()
-            WHERE id = $6
-            RETURNING id, name_uz, name_ru, name_en, sort_order, is_active`,
-          [values.nameUz, values.nameRu, values.nameEn, values.sortOrder, values.isActive, id]
-        ));
+        updated = await withTransaction(async (client) => {
+          // Only an explicit position competes with reorder; the common case
+          // (omitted sort_order) keeps whatever is stored and needs no lock.
+          if (values.sortOrder !== null) {
+            await lockSortOrder(client);
+          }
+
+          const { rows } = await client.query(
+            `UPDATE categories
+                SET name_uz    = $1,
+                    name_ru    = $2,
+                    name_en    = $3,
+                    sort_order = COALESCE($4::int, sort_order),
+                    is_active  = $5,
+                    updated_at = NOW()
+              WHERE id = $6
+              RETURNING id, name_uz, name_ru, name_en, sort_order, is_active`,
+            [values.nameUz, values.nameRu, values.nameEn, values.sortOrder, values.isActive, id]
+          );
+
+          if (!rows.length) {
+            throw new HttpError(404, { error: 'Category not found.' });
+          }
+
+          return rows[0];
+        });
       } catch (err) {
         if (err && err.code === UNIQUE_VIOLATION) return duplicateName(res);
         throw err;
       }
 
-      if (!rows.length) return res.status(404).json({ error: 'Category not found.' });
-      res.json({ data: rows[0] });
+      res.json({ data: updated });
     })
   );
 
@@ -279,12 +363,13 @@ function createCategoriesRouter({ pool, requireAdmin } = {}) {
         'The category list changed since this page was loaded. ' +
         'Refresh and try reordering again.';
 
-      const client = await pool.connect();
-      try {
-        await client.query('BEGIN');
+      await withTransaction(async (client) => {
+        // The advisory lock keeps concurrent creates and explicit sort_order
+        // updates out; FOR UPDATE below additionally blocks deletes of the
+        // rows being renumbered.
+        await lockSortOrder(client);
 
-        // Lock every row (in a fixed id order, so concurrent reorders queue up
-        // instead of deadlocking) and compare against the submitted list.
+        // Fixed id order so concurrent reorders queue instead of deadlocking.
         const { rows: existing } = await client.query(
           'SELECT id FROM categories ORDER BY id FOR UPDATE'
         );
@@ -292,8 +377,7 @@ function createCategoriesRouter({ pool, requireAdmin } = {}) {
 
         const unknown = parsed.filter((id) => !known.has(id));
         if (unknown.length) {
-          await client.query('ROLLBACK');
-          return res.status(422).json({
+          throw new HttpError(422, {
             error: 'CATEGORY_NOT_FOUND',
             errors: [`Unknown category id(s): ${unknown.join(', ')}.`],
             message: staleMessage,
@@ -301,8 +385,7 @@ function createCategoriesRouter({ pool, requireAdmin } = {}) {
         }
 
         if (parsed.length !== known.size) {
-          await client.query('ROLLBACK');
-          return res.status(409).json({
+          throw new HttpError(409, {
             error: 'CATEGORY_LIST_STALE',
             expected_count: known.size,
             received_count: parsed.length,
@@ -321,14 +404,7 @@ function createCategoriesRouter({ pool, requireAdmin } = {}) {
               AND c.sort_order IS DISTINCT FROM v.position - 1`,
           [parsed]
         );
-
-        await client.query('COMMIT');
-      } catch (err) {
-        await client.query('ROLLBACK');
-        throw err;
-      } finally {
-        client.release();
-      }
+      });
 
       res.json({ ok: true });
     })
@@ -338,6 +414,13 @@ function createCategoriesRouter({ pool, requireAdmin } = {}) {
    * Delete. Refuses when dishes still reference the category, so menu items
    * can never be silently destroyed. The client should ask the admin to move
    * or remove those dishes first.
+   *
+   * The count and the delete run in one transaction, and the category row is
+   * locked FOR UPDATE first. Inserting a dish takes a FOR KEY SHARE lock on
+   * its parent category, which conflicts with FOR UPDATE, so a dish cannot be
+   * added between the check and the delete and slip past the guard. Without
+   * this, the outcome would depend on the foreign key's delete action -- and
+   * ON DELETE CASCADE would destroy the very dishes this check protects.
    */
   router.delete(
     '/:id',
@@ -346,26 +429,35 @@ function createCategoriesRouter({ pool, requireAdmin } = {}) {
       const id = parseId(req.params.id);
       if (!id) return res.status(400).json({ error: 'Invalid category id.' });
 
-      const { rows: countRows } = await pool.query(
-        `SELECT COUNT(*)::int AS dish_count
-           FROM ${DISHES_TABLE}
-          WHERE ${DISHES_FK} = $1`,
-        [id]
-      );
+      await withTransaction(async (client) => {
+        const { rows: locked } = await client.query(
+          'SELECT id FROM categories WHERE id = $1 FOR UPDATE',
+          [id]
+        );
+        if (!locked.length) {
+          throw new HttpError(404, { error: 'Category not found.' });
+        }
 
-      const dishCount = countRows[0] ? countRows[0].dish_count : 0;
-      if (dishCount > 0) {
-        return res.status(409).json({
-          error: 'CATEGORY_NOT_EMPTY',
-          dish_count: dishCount,
-          message:
-            `This category still contains ${dishCount} dish(es). ` +
-            'Move or delete them first, or deactivate the category instead.',
-        });
-      }
+        const { rows: countRows } = await client.query(
+          `SELECT COUNT(*)::int AS dish_count
+             FROM ${DISHES_TABLE}
+            WHERE ${DISHES_FK} = $1`,
+          [id]
+        );
 
-      const { rowCount } = await pool.query('DELETE FROM categories WHERE id = $1', [id]);
-      if (!rowCount) return res.status(404).json({ error: 'Category not found.' });
+        const dishCount = countRows[0] ? countRows[0].dish_count : 0;
+        if (dishCount > 0) {
+          throw new HttpError(409, {
+            error: 'CATEGORY_NOT_EMPTY',
+            dish_count: dishCount,
+            message:
+              `This category still contains ${dishCount} dish(es). ` +
+              'Move or delete them first, or deactivate the category instead.',
+          });
+        }
+
+        await client.query('DELETE FROM categories WHERE id = $1', [id]);
+      });
 
       res.status(204).end();
     })
