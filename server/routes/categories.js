@@ -249,7 +249,12 @@ function createCategoriesRouter({ pool, requireAdmin } = {}) {
 
   /**
    * Reorder: accepts { ids: [3, 1, 2] } and writes sort_order by array position.
-   * Runs in a transaction so a partial failure cannot leave a mangled order.
+   *
+   * The payload must list every category exactly once. A partial list would
+   * renumber only the ids it contains while the rest keep their old positions,
+   * which yields duplicate sort_order values and an order that then depends on
+   * the id tiebreak. A list that does not match the table means the caller is
+   * working from a stale view, so it is rejected with 409 rather than applied.
    */
   router.patch(
     '/reorder',
@@ -265,15 +270,58 @@ function createCategoriesRouter({ pool, requireAdmin } = {}) {
         return res.status(422).json({ errors: ['ids must all be positive integers.'] });
       }
 
+      const unique = new Set(parsed);
+      if (unique.size !== parsed.length) {
+        return res.status(422).json({ errors: ['ids must not contain duplicates.'] });
+      }
+
+      const staleMessage =
+        'The category list changed since this page was loaded. ' +
+        'Refresh and try reordering again.';
+
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
-        for (let i = 0; i < parsed.length; i += 1) {
-          await client.query(
-            'UPDATE categories SET sort_order = $1, updated_at = NOW() WHERE id = $2',
-            [i, parsed[i]]
-          );
+
+        // Lock every row (in a fixed id order, so concurrent reorders queue up
+        // instead of deadlocking) and compare against the submitted list.
+        const { rows: existing } = await client.query(
+          'SELECT id FROM categories ORDER BY id FOR UPDATE'
+        );
+        const known = new Set(existing.map((row) => row.id));
+
+        const unknown = parsed.filter((id) => !known.has(id));
+        if (unknown.length) {
+          await client.query('ROLLBACK');
+          return res.status(422).json({
+            error: 'CATEGORY_NOT_FOUND',
+            errors: [`Unknown category id(s): ${unknown.join(', ')}.`],
+            message: staleMessage,
+          });
         }
+
+        if (parsed.length !== known.size) {
+          await client.query('ROLLBACK');
+          return res.status(409).json({
+            error: 'CATEGORY_LIST_STALE',
+            expected_count: known.size,
+            received_count: parsed.length,
+            errors: [staleMessage],
+            message: staleMessage,
+          });
+        }
+
+        // WITH ORDINALITY is 1-based; store 0-based to match the client.
+        await client.query(
+          `UPDATE categories AS c
+              SET sort_order = v.position - 1,
+                  updated_at = NOW()
+             FROM unnest($1::int[]) WITH ORDINALITY AS v(id, position)
+            WHERE c.id = v.id
+              AND c.sort_order IS DISTINCT FROM v.position - 1`,
+          [parsed]
+        );
+
         await client.query('COMMIT');
       } catch (err) {
         await client.query('ROLLBACK');

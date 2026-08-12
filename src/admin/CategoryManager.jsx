@@ -39,9 +39,17 @@ export default function CategoryManager() {
   // Remembers which reorder button to re-focus once the list re-renders.
   const pendingFocus = useRef(null);
 
-  const refresh = useCallback(async () => {
+  /**
+   * Reloads the list from the server.
+   *
+   * `keepMessage` leaves the current error banner in place. Failure handlers
+   * resync to recover from stale state, and clearing the banner there would
+   * discard the very message explaining why the resync happened (React batches
+   * the two updates, so the empty string would win).
+   */
+  const refresh = useCallback(async ({ keepMessage = false } = {}) => {
     setLoading(true);
-    setError('');
+    if (!keepMessage) setError('');
     try {
       setCategories(await listCategories({ includeInactive: true }));
     } catch (err) {
@@ -185,8 +193,9 @@ export default function CategoryManager() {
     } catch (err) {
       setError(err.message || 'Could not delete this category.');
       setConfirmingId(null);
-      // The server is the source of truth on dish counts; resync.
-      refresh();
+      // The server is the source of truth on dish counts; resync, keeping the
+      // message that explains the refusal.
+      refresh({ keepMessage: true });
     } finally {
       setBusyId(null);
     }
@@ -213,10 +222,17 @@ export default function CategoryManager() {
     setCategories(reindexed); // optimistic
     setBusyId(category.id);
     try {
+      // The server requires every category in the payload, so send the whole
+      // list rather than just the swapped pair.
       await reorderCategories(reindexed.map((item) => item.id));
     } catch (err) {
       setCategories(previous); // roll back on failure
       setError(err.message || 'Could not save the new order.');
+      // 409 means this page no longer matches the server (another admin added
+      // or removed a category). Resync so the next attempt covers every row.
+      if (err instanceof ApiError && err.status === 409) {
+        refresh({ keepMessage: true });
+      }
     } finally {
       setBusyId(null);
     }
