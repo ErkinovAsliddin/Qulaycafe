@@ -38,6 +38,20 @@ function createCategoriesRouter({ pool, requireAdmin } = {}) {
     return trimmed.length ? trimmed : null;
   };
 
+  const wantsInactive = (req) =>
+    req.query.includeInactive === '1' || req.query.includeInactive === 'true';
+
+  /**
+   * The category list is public because the customer-facing menu reads it,
+   * but `includeInactive` exposes sections the admin deliberately switched
+   * off. Gate the flag (not the whole route) behind requireAdmin so anonymous
+   * callers can never enumerate hidden categories.
+   */
+  const requireAdminForInactive = (req, res, next) => {
+    if (!wantsInactive(req)) return next();
+    return requireAdmin(req, res, next);
+  };
+
   /**
    * Validates a category payload. Returns { values, errors }.
    * Uzbek name is mandatory; Russian and English fall back to it when blank.
@@ -92,13 +106,14 @@ function createCategoriesRouter({ pool, requireAdmin } = {}) {
   }
 
   // ---------------------------------------------------------------------------
-  // Public read: used by the customer-facing menu.
+  // Public read: used by the customer-facing menu. Anonymous callers see only
+  // active categories; `includeInactive=1` requires an admin session.
   // ---------------------------------------------------------------------------
   router.get(
     '/',
+    requireAdminForInactive,
     asyncRoute(async (req, res) => {
-      const includeInactive =
-        req.query.includeInactive === '1' || req.query.includeInactive === 'true';
+      const includeInactive = wantsInactive(req);
 
       const { rows } = await pool.query(
         `SELECT c.id,
