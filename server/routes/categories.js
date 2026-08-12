@@ -112,10 +112,11 @@ function createCategoriesRouter({ pool, requireAdmin } = {}) {
     req.query.includeInactive === '1' || req.query.includeInactive === 'true';
 
   /**
-   * The category list is public because the customer-facing menu reads it,
-   * but `includeInactive` exposes sections the admin deliberately switched
-   * off. Gate the flag (not the whole route) behind requireAdmin so anonymous
-   * callers can never enumerate hidden categories.
+   * The reads below are public because the customer-facing menu uses them, but
+   * `includeInactive` exposes sections the admin deliberately switched off.
+   * Gate the flag (not the whole route) behind requireAdmin so anonymous
+   * callers can never enumerate hidden categories -- on the list *or* by
+   * guessing ids on the detail route.
    */
   const requireAdminForInactive = (req, res, next) => {
     if (!wantsInactive(req)) return next();
@@ -197,7 +198,7 @@ function createCategoriesRouter({ pool, requireAdmin } = {}) {
   }
 
   // ---------------------------------------------------------------------------
-  // Public read: used by the customer-facing menu. Anonymous callers see only
+  // Public reads: used by the customer-facing menu. Anonymous callers see only
   // active categories; `includeInactive=1` requires an admin session.
   // ---------------------------------------------------------------------------
   router.get(
@@ -226,17 +227,26 @@ function createCategoriesRouter({ pool, requireAdmin } = {}) {
     })
   );
 
+  /**
+   * Single category. Filtered the same way as the list: without an admin
+   * session and `includeInactive=1`, a deactivated category reports 404 rather
+   * than 403, so the response does not reveal that the id exists.
+   */
   router.get(
     '/:id',
+    requireAdminForInactive,
     asyncRoute(async (req, res) => {
       const id = parseId(req.params.id);
       if (!id) return res.status(400).json({ error: 'Invalid category id.' });
 
+      const includeInactive = wantsInactive(req);
+
       const { rows } = await pool.query(
         `SELECT id, name_uz, name_ru, name_en, sort_order, is_active
            FROM categories
-          WHERE id = $1`,
-        [id]
+          WHERE id = $1
+            AND ($2::boolean OR is_active = TRUE)`,
+        [id, includeInactive]
       );
 
       if (!rows.length) return res.status(404).json({ error: 'Category not found.' });

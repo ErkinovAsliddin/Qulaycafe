@@ -20,6 +20,11 @@ CREATE INDEX IF NOT EXISTS categories_is_active_idx
 
 -- Seed the two categories you already have. Safe to re-run: each row is
 -- inserted only when no category with the same Uzbek name exists yet.
+--
+-- The comparison is case-insensitive to match the unique index added in
+-- migration 002 (on lower(name_uz)). A case-sensitive guard is weaker than the
+-- constraint, so re-running this file on a database that already holds, say,
+-- 'birinchi taom' would pass the guard and then fail on the index.
 INSERT INTO categories (name_uz, name_ru, name_en, sort_order)
 SELECT seed.name_uz, seed.name_ru, seed.name_en, seed.sort_order
   FROM (
@@ -30,5 +35,5 @@ SELECT seed.name_uz, seed.name_ru, seed.name_en, seed.sort_order
  WHERE NOT EXISTS (
            SELECT 1
              FROM categories c
-            WHERE c.name_uz = seed.name_uz
+            WHERE lower(c.name_uz) = lower(seed.name_uz)
        );
