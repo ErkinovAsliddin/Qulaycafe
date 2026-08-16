@@ -1,0 +1,19 @@
+# Rebuilt inside the image, and a stale host copy would shadow the build.
+node_modules
+dist
+landing
+
+# The GitHub clone of the marketing page's design export (a zip). It is not an
+# input to the build — src/landing/ is.
+Land
+
+# Not needed to build, and `data/` holds the live SQLite database — it belongs
+# in the mounted volume, never baked into an image layer.
+.git
+.gitignore
+data
+*.log
+npm-debug.log*
+
+# NOTE: .env is deliberately NOT ignored. `vite build` reads the VITE_* vars
+# from it, and those are compiled into the browser bundle at build time.

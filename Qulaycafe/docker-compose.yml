@@ -1,0 +1,14 @@
+services:
+  app:
+    build: .
+    container_name: restaurant-app
+    restart: unless-stopped
+    ports:
+      - "6000:6000"
+    env_file:
+      - .env
+    volumes:
+      - restaurant-data:/app/data
+
+volumes:
+  restaurant-data:

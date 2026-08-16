@@ -1,0 +1,22 @@
+# Build output
+node_modules
+dist
+# The marketing site is built from src/landing/ by `npm run build:landing`.
+# The hand-written page that used to live here is archived at
+# docs/legacy-landing.html.
+landing
+
+# Live SQLite database and backups
+data
+
+# Secrets and local overrides (.env.example is committed)
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# The design export downloaded from GitHub (a zip)
+Land

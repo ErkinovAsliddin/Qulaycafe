@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Which of the two documents this is. The apex hostname must answer with
+         the marketing shell and every other hostname with this one; tests
+         assert on this marker instead of on incidental markup, since both
+         documents are React roots. -->
+    <meta name="qulaycafe-surface" content="app" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Qulaycafe" />
+    <meta name="theme-color" content="#f97316" />
+    <link rel="icon" type="image/jpeg" href="/src/assets/images/app_icon_1784704613472.jpg" />
+    <link rel="apple-touch-icon" href="/src/assets/images/app_icon_1784704613472.jpg" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <title>Qulaycafe - Raqamli menyu va QR buyurtma</title>
+    <!-- Only actually loads/activates anything when opened inside Telegram
+         as a Mini App; harmless no-op script on a normal web browser. -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  </head>
+  <body class="bg-zinc-950 antialiased select-none overscroll-none">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

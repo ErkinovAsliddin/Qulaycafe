@@ -1,0 +1,6 @@
+{
+  "name": "Qulaycafe - Digital Menu, QR Ordering & Delivery Platform",
+  "description": "Multi-tenant QR table ordering platform for restaurants: digital menu, Kitchen Display System (KDS), admin dashboard, loyalty tracking, delivery, and Telegram integrations.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

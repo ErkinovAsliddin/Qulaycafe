@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Qulaycafe — Restoraningiz uchun QR-menyu, oshxona ekrani va dostavka bir joyda</title>
+<meta name="description" content="Qulaycafe — stollarga QR-kod, jonli oshxona ekrani, kuryer va olib ketish tizimi bitta ilovada. Restoraningizni 15 daqiqada ulang." />
+<meta name="theme-color" content="#161410" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#1C1A15;
+    --paper:#FBF8F2;
+    --paper-dim:#F1ECE0;
+    --line:#DCD5C4;
+    --hot:#FF5A36;
+    --hot-dim:#FFE4DA;
+    --ready:#1F8A5F;
+    --ready-dim:#DCF3E7;
+    --night:#161410;
+    --night-2:#211E17;
+    --display: 'Bricolage Grotesque', system-ui, sans-serif;
+    --mono: 'IBM Plex Mono', ui-monospace, monospace;
+    --body: 'Inter', system-ui, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--body);
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  a{color:inherit;}
+  img{max-width:100%;display:block;}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px;}
+  .eyebrow{
+    font-family:var(--mono);
+    font-size:12px;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    color:var(--hot);
+    font-weight:600;
+  }
+  h1,h2,h3{font-family:var(--display);margin:0;letter-spacing:-0.01em;}
+  .btn{
+    display:inline-flex;align-items:center;gap:8px;
+    font-family:var(--body);font-weight:700;font-size:15px;
+    padding:13px 22px;border-radius:100px;
+    text-decoration:none;
+    border:1.5px solid transparent;
+    cursor:pointer;transition:transform .15s ease, box-shadow .15s ease, background .15s ease;
+  }
+  .btn-hot{background:var(--hot);color:#fff;box-shadow:0 8px 20px -8px rgba(255,90,54,.55);}
+  .btn-hot:hover{transform:translateY(-1px);box-shadow:0 12px 26px -8px rgba(255,90,54,.65);}
+  .btn-ghost{background:transparent;color:var(--ink);border-color:var(--line);}
+  .btn-ghost:hover{border-color:var(--ink);}
+  .btn-dark{background:var(--night);color:var(--paper);}
+  .btn-dark:hover{transform:translateY(-1px);}
+
+  /* ---------- Nav ---------- */
+  nav.top{
+    position:sticky;top:0;z-index:50;
+    background:rgba(251,248,242,.86);backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line);
+  }
+  nav.top .wrap{display:flex;align-items:center;justify-content:space-between;height:72px;}
+  .brand{display:flex;align-items:center;gap:10px;font-family:var(--display);font-weight:800;font-size:20px;}
+  .brand .dot{width:10px;height:10px;border-radius:3px;background:var(--hot);transform:rotate(45deg);}
+  .nav-links{display:flex;gap:28px;font-size:14px;font-weight:600;color:#57503F;}
+  .nav-links a{text-decoration:none;}
+  .nav-links a:hover{color:var(--ink);}
+  .nav-cta{display:flex;gap:10px;align-items:center;}
+  @media (max-width:820px){ .nav-links{display:none;} }
+
+  /* ---------- Hero ---------- */
+  header.hero{position:relative;padding:88px 0 60px;overflow:hidden;}
+  .hero-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:56px;align-items:center;}
+  @media (max-width:960px){ .hero-grid{grid-template-columns:1fr;} }
+  .hero h1{font-size:clamp(34px,5.4vw,58px);line-height:1.03;font-weight:800;margin:14px 0 20px;}
+  .hero h1 em{font-style:normal;color:var(--hot);}
+  .hero p.lead{font-size:17px;line-height:1.6;color:#4B4536;max-width:520px;margin:0 0 30px;}
+  .hero-actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:26px;}
+  .hero-note{font-family:var(--mono);font-size:12.5px;color:#847B65;}
+
+  /* Signature: stacked printed order tickets */
+  .ticket-stack{position:relative;height:440px;}
+  .ticket{
+    position:absolute;left:50%;width:300px;
+    background:#fff;border:1px solid var(--line);
+    box-shadow:0 24px 48px -18px rgba(28,26,21,.28);
+    padding:20px 22px 26px;
+    font-family:var(--mono);
+  }
+  .ticket::before,.ticket::after{
+    content:"";position:absolute;left:0;right:0;height:10px;
+    background-image:radial-gradient(circle at 8px 5px, var(--paper) 5px, transparent 5.5px);
+    background-size:16px 10px;background-repeat:repeat-x;
+  }
+  .ticket::before{top:-5px;}
+  .ticket::after{bottom:-5px;transform:rotate(180deg);}
+  .t1{top:0;transform:translate(-72%,0) rotate(-7deg);z-index:1;opacity:.9;}
+  .t2{top:70px;transform:translate(-50%,0) rotate(3deg);z-index:2;}
+  .t3{top:150px;transform:translate(-58%,0) rotate(-2deg);z-index:3;box-shadow:0 30px 60px -16px rgba(28,26,21,.35);}
+  .ticket .thead{display:flex;justify-content:space-between;font-size:11px;color:#8A8168;border-bottom:1px dashed var(--line);padding-bottom:10px;margin-bottom:10px;}
+  .ticket .titem{display:flex;justify-content:space-between;font-size:12.5px;padding:3px 0;color:#2b2820;}
+  .ticket .ttotal{display:flex;justify-content:space-between;font-weight:600;font-size:13px;border-top:1px dashed var(--line);margin-top:10px;padding-top:10px;}
+  .stamp{
+    position:absolute;top:16px;right:16px;font-family:var(--mono);font-size:10.5px;font-weight:600;
+    padding:4px 8px;border-radius:5px;letter-spacing:.05em;text-transform:uppercase;transform:rotate(6deg);
+  }
+  .stamp.new{background:var(--hot-dim);color:var(--hot);}
+  .stamp.cooking{background:#FFF1D6;color:#A66A00;}
+  .stamp.ready{background:var(--ready-dim);color:var(--ready);}
+
+  /* ---------- Logos / trust strip ---------- */
+  .trust{padding:26px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);}
+  .trust .wrap{display:flex;gap:40px;align-items:center;justify-content:center;flex-wrap:wrap;font-family:var(--mono);font-size:12.5px;color:#8A8168;text-transform:uppercase;letter-spacing:.08em;}
+
+  /* ---------- Section shell ---------- */
+  section{padding:96px 0;}
+  .section-head{max-width:600px;margin-bottom:52px;}
+  .section-head h2{font-size:clamp(26px,3.6vw,38px);margin-top:12px;line-height:1.12;}
+  .section-head p{color:#57503F;font-size:15.5px;line-height:1.6;margin-top:14px;}
+
+  /* ---------- Features ---------- */
+  .feat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line);}
+  @media (max-width:880px){ .feat-grid{grid-template-columns:repeat(2,1fr);} }
+  @media (max-width:600px){ .feat-grid{grid-template-columns:1fr;} }
+  .feat{background:var(--paper);padding:32px 28px;min-height:210px;display:flex;flex-direction:column;gap:12px;}
+  .feat .num{font-family:var(--mono);font-size:12px;color:var(--hot);font-weight:600;}
+  .feat h3{font-size:17.5px;font-weight:700;}
+  .feat p{font-size:14px;line-height:1.55;color:#5A5343;margin:0;}
+
+  /* ---------- How it works ---------- */
+  .steps{position:relative;}
+  .step-row{display:grid;grid-template-columns:64px 1fr;gap:22px;padding:26px 0;border-top:1px solid var(--line);}
+  .step-row:last-child{border-bottom:1px solid var(--line);}
+  .step-num{font-family:var(--mono);font-size:26px;font-weight:600;color:var(--line);}
+  .step-body h3{font-size:18px;margin-bottom:6px;}
+  .step-body p{color:#57503F;font-size:14.5px;line-height:1.6;margin:0;max-width:560px;}
+
+  /* ---------- Bot / delivery highlight (dark) ---------- */
+  .dark-panel{background:var(--night);color:var(--paper);border-radius:26px;padding:56px 40px;position:relative;overflow:hidden;}
+  .dark-panel::after{content:"";position:absolute;inset:0;background:radial-gradient(600px 300px at 85% 0%, rgba(255,90,54,.18), transparent 60%);}
+  .dark-grid{display:grid;grid-template-columns:1fr 1fr;gap:40px;position:relative;}
+  @media (max-width:880px){ .dark-grid{grid-template-columns:1fr;} }
+  .dark-panel h2{font-size:clamp(24px,3.4vw,34px);color:#fff;margin-top:10px;}
+  .dark-panel p{color:#C9C2B2;font-size:15px;line-height:1.65;}
+  .chat-mock{background:var(--night-2);border:1px solid #37332A;border-radius:16px;padding:18px;font-family:var(--mono);font-size:12.5px;}
+  .bubble{background:#2A261D;border-radius:10px;padding:12px 14px;margin-bottom:10px;color:#E9E4D6;line-height:1.5;}
+  .bubble.pin{display:flex;align-items:center;gap:10px;}
+  .bubble.pin .pindot{width:34px;height:34px;border-radius:8px;background:linear-gradient(135deg,#3a3527,#232019);flex:none;display:flex;align-items:center;justify-content:center;font-size:16px;}
+  .bubble .accept{margin-top:10px;display:inline-block;background:var(--hot);color:#fff;font-weight:600;padding:8px 14px;border-radius:8px;font-family:var(--body);font-size:12.5px;}
+
+  /* ---------- Domain note ---------- */
+  .domain-card{border:1px solid var(--line);border-radius:20px;padding:34px;background:var(--paper-dim);display:grid;grid-template-columns:1fr 1fr;gap:30px;}
+  @media (max-width:820px){ .domain-card{grid-template-columns:1fr;} }
+  .domain-card .url{font-family:var(--mono);font-size:14px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 14px;display:inline-block;}
+
+  /* ---------- CTA ---------- */
+  .cta{background:var(--night);border-radius:26px;padding:64px 40px;text-align:center;color:var(--paper);}
+  .cta h2{color:#fff;font-size:clamp(26px,4vw,40px);}
+  .cta p{color:#C9C2B2;max-width:480px;margin:14px auto 30px;font-size:15px;line-height:1.6;}
+
+  /* ---------- Footer ---------- */
+  footer{padding:48px 0 60px;border-top:1px solid var(--line);}
+  footer .wrap{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;}
+  footer .foot-brand{display:flex;align-items:center;gap:8px;font-family:var(--display);font-weight:800;}
+  footer nav{display:flex;gap:22px;font-size:13.5px;color:#8A8168;}
+  footer nav a{text-decoration:none;}
+  footer nav a:hover{color:var(--ink);}
+  footer .copy{font-family:var(--mono);font-size:11.5px;color:#A69C82;width:100%;margin-top:24px;}
+</style>
+</head>
+<body>
+
+<nav class="top">
+  <div class="wrap">
+    <div class="brand"><span class="dot"></span> Qulaycafe</div>
+    <div class="nav-links">
+      <a href="#xususiyatlar">Xususiyatlar</a>
+      <a href="#qanday-ishlaydi">Qanday ishlaydi</a>
+      <a href="#dostavka">Dostavka &amp; kuryer</a>
+      <a href="#narx">Narxlar</a>
+    </div>
+    <div class="nav-cta">
+      <a class="btn btn-ghost" href="https://admin.qulaycafe.uz" style="padding:10px 18px;font-size:13.5px;">Kirish</a>
+      <a class="btn btn-hot" href="#narx" style="padding:10px 18px;font-size:13.5px;">Bepul boshlash</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <span class="eyebrow">Restoranlar uchun raqamli buyurtma tizimi</span>
+      <h1>Stoldan oshxonagacha,<br>oshxonadan <em>uygacha</em> — bitta tizim.</h1>
+      <p class="lead">Qulaycafe — mijoz QR-kodni skanerlaydi, buyurtma to'g'ridan-to'g'ri oshxona ekraniga tushadi, tayyor bo'lgach esa kuryer yoki mijozning o'zi olib ketadi. Qog'oz chek, telefon orqali qichqiriq va yo'qolgan buyurtmalarsiz.</p>
+      <div class="hero-actions">
+        <a class="btn btn-hot" href="#narx">Restoranimni ulash</a>
+        <a class="btn btn-ghost" href="#qanday-ishlaydi">Qanday ishlashini ko'rish</a>
+      </div>
+      <div class="hero-note">15 daqiqada sozlanadi &middot; kredit karta shart emas &middot; O'zbek, rus, ingliz tillarida</div>
+    </div>
+
+    <div class="ticket-stack" aria-hidden="true">
+      <div class="ticket t1">
+        <span class="stamp ready">Tayyor</span>
+        <div class="thead"><span>STOL #4</span><span>14:02</span></div>
+        <div class="titem"><span>Lag'mon</span><span>1x</span></div>
+        <div class="titem"><span>Achchiq-chuchuk</span><span>2x</span></div>
+        <div class="ttotal"><span>Jami</span><span>68 000</span></div>
+      </div>
+      <div class="ticket t2">
+        <span class="stamp cooking">Tayyorlanmoqda</span>
+        <div class="thead"><span>🛵 DOSTAVKA</span><span>14:07</span></div>
+        <div class="titem"><span>Osh</span><span>2x</span></div>
+        <div class="titem"><span>Norin</span><span>1x</span></div>
+        <div class="ttotal"><span>Jami</span><span>94 000</span></div>
+      </div>
+      <div class="ticket t3">
+        <span class="stamp new">Yangi</span>
+        <div class="thead"><span>🥡 OLIB KETISH</span><span>14:11</span></div>
+        <div class="titem"><span>Manti</span><span>1x</span></div>
+        <div class="titem"><span>Cho'chqa... yo'q, Shashlik</span><span>3x</span></div>
+        <div class="ttotal"><span>Jami</span><span>112 000</span></div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="trust">
+  <div class="wrap">
+    <span>QR-menyu</span><span>Jonli oshxona ekrani</span><span>Kuryer boti</span><span>Olib ketish</span><span>Admin panel</span><span>Analitika</span>
+  </div>
+</div>
+
+<section id="xususiyatlar">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">Xususiyatlar</span>
+      <h2>Har bir buyurtma turi uchun to'g'ri oqim</h2>
+      <p>Zalda o'tirgan mijozdan tortib, uyidan buyurtma bergan mijozgacha — har biri o'z yo'lini bosib o'tadi, lekin hammasi bitta boshqaruv panelida yig'iladi.</p>
+    </div>
+    <div class="feat-grid">
+      <div class="feat">
+        <span class="num">01</span>
+        <h3>📱 QR-menyu va buyurtma</h3>
+        <p>Har bir stolga o'z QR-kodi. Mijoz skanerlaydi, menyuni ko'radi, buyurtma beradi — ofitsiant kutmasdan.</p>
+      </div>
+      <div class="feat">
+        <span class="num">02</span>
+        <h3>🍳 Jonli oshxona ekrani</h3>
+        <p>Buyurtma soniyasida oshxona ekraniga tushadi: stol, dostavka yoki olib ketish — barchasi aniq belgilangan.</p>
+      </div>
+      <div class="feat">
+        <span class="num">03</span>
+        <h3>🛵 Kuryer boti (Telegram)</h3>
+        <p>Dostavka buyurtmasi tushishi bilan barcha faol kuryerlarga xabar ketadi. Birinchi qabul qilgan kuryerga beriladi.</p>
+      </div>
+      <div class="feat">
+        <span class="num">04</span>
+        <h3>📍 Aniq joylashuv</h3>
+        <p>Mijoz manzilni yozish o'rniga bir tugma bilan joylashuvini yuboradi — kuryer haqiqiy xarita pinini ko'radi.</p>
+      </div>
+      <div class="feat">
+        <span class="num">05</span>
+        <h3>🥡 Olib ketish</h3>
+        <p>Kuryersiz ham bo'ladi — mijoz tayyor bo'lganda qo'ng'iroq oladi va o'zi kelib oladi.</p>
+      </div>
+      <div class="feat">
+        <span class="num">06</span>
+        <h3>📊 Admin va analitika</h3>
+        <p>Kunlik tushum, mashhur taomlar, band stollar, inventar — barchasi bitta boshqaruv panelida.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="qanday-ishlaydi" style="background:var(--paper-dim);">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">Qanday ishlaydi</span>
+      <h2>Buyurtmadan — mijozning qo'liga qadar</h2>
+    </div>
+    <div class="steps">
+      <div class="step-row">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h3>Mijoz tanlaydi</h3>
+          <p>Stolda QR skanerlaydi, yoki ilova/sayt orqali "Dostavka" yoki "Olib ketish" rejimini tanlaydi.</p>
+        </div>
+      </div>
+      <div class="step-row">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h3>Oshxona tayyorlaydi</h3>
+          <p>Buyurtma zudlik bilan oshxona ekraniga tushadi — turi (stol / dostavka / olib ketish) aniq ko'rinadi, mijoz aloqasi bir joyda.</p>
+        </div>
+      </div>
+      <div class="step-row">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <h3>Yetkazish yoki topshirish</h3>
+          <p>Dostavka bo'lsa — kuryer botga xabar keladi va xarita pinini ko'radi. Olib ketish bo'lsa — mijozga qo'ng'iroq qilinadi.</p>
+        </div>
+      </div>
+      <div class="step-row">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <h3>Admin hammasini kuzatadi</h3>
+          <p>Har bir buyurtma, to'lov va kuryer holati jonli — hech narsa qog'ozda yo'qolib qolmaydi.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="dostavka">
+  <div class="wrap">
+    <div class="dark-panel">
+      <div class="dark-grid">
+        <div>
+          <span class="eyebrow" style="color:#FF8A6B;">Dostavka &amp; kuryer</span>
+          <h2>Kuryer manzilni o'qimaydi — xaritada ko'radi</h2>
+          <p>Mijoz "📍 Joylashuvimni yuborish" tugmasini bosadi. Kuryer Telegram botida haqiqiy xarita pinini oladi va bir bosishda navigatorga o'tadi. Birinchi qabul qilgan kuryerga beriladi, qolganlarga avtomatik xabar ketadi.</p>
+          <a class="btn btn-dark" href="#narx" style="margin-top:8px;">Kuryer botini ulash</a>
+        </div>
+        <div class="chat-mock">
+          <div class="bubble">🛵 <strong>Yangi dostavka buyurtmasi</strong><br>📦 2x Osh, 1x Norin<br>📍 Aniq joylashuv quyida ⬇️<br>📞 +998 90 123 45 67<br>💰 94 000 so'm</div>
+          <div class="bubble pin"><span class="pindot">📍</span> <span>Joylashuv — xarita pin</span></div>
+          <div class="bubble">✅ <strong>Siz qabul qildingiz</strong><br><span class="accept">🚗 Yo'lda</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">To'rt manzil, to'rt ekran</span>
+      <h2>Har kim faqat o'ziga tegishlini ko'radi</h2>
+    </div>
+    <div class="domain-card">
+      <div>
+        <h3 style="font-size:16px;margin-bottom:8px;">qulaycafe.uz</h3>
+        <p style="color:#57503F;font-size:14px;line-height:1.6;margin:0 0 12px;">Bu sahifa. Google orqali topiladi, restoran egalari Qulaycafe haqida shu yerda biladi.</p>
+        <span class="url">qulaycafe.uz</span>
+      </div>
+      <div>
+        <h3 style="font-size:16px;margin-bottom:8px;">clients.qulaycafe.uz</h3>
+        <p style="color:#57503F;font-size:14px;line-height:1.6;margin:0 0 12px;">Mijoz QR ni skan qilganda shu yer ochiladi: menyu, savat, dostavka va bron. Admin yoki oshxona bo'limlari bu yerda umuman yo'q.</p>
+        <span class="url">clients.qulaycafe.uz</span>
+      </div>
+      <div>
+        <h3 style="font-size:16px;margin-bottom:8px;">kitchen.qulaycafe.uz</h3>
+        <p style="color:#57503F;font-size:14px;line-height:1.6;margin:0 0 12px;">Oshxona ekrani. Faqat kelayotgan buyurtmalar — oshpaz planshetiga bir marta ochib qo'yiladi.</p>
+        <span class="url">kitchen.qulaycafe.uz</span>
+      </div>
+      <div>
+        <h3 style="font-size:16px;margin-bottom:8px;">admin.qulaycafe.uz</h3>
+        <p style="color:#57503F;font-size:14px;line-height:1.6;margin:0 0 12px;">Restoran egasi paneli: menyu, narxlar, stollar, QR kodlar, hisobotlar va sozlamalar. Parol bilan kiriladi.</p>
+        <span class="url">admin.qulaycafe.uz</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="narx">
+  <div class="wrap">
+    <div class="cta">
+      <span class="eyebrow" style="color:#FF8A6B;">Boshlash</span>
+      <h2>Restoraningizni bugun ulang</h2>
+      <p>QR-menyu, oshxona ekrani, dostavka va olib ketish — barchasi bitta tizimda. Sozlash bepul, kredit karta talab qilinmaydi.</p>
+      <a class="btn btn-hot" href="https://admin.qulaycafe.uz" style="font-size:16px;padding:15px 28px;">Bepul boshlash →</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-brand"><span class="dot" style="width:9px;height:9px;background:var(--hot);border-radius:2px;transform:rotate(45deg);display:inline-block;"></span> Qulaycafe</div>
+    <nav>
+      <a href="#xususiyatlar">Xususiyatlar</a>
+      <a href="#dostavka">Dostavka</a>
+      <a href="https://admin.qulaycafe.uz">Tizimga kirish</a>
+    </nav>
+    <div class="copy">© <span id="y"></span> Qulaycafe. Barcha huquqlar himoyalangan.</div>
+  </div>
+</footer>
+
+<script>document.getElementById('y').textContent = new Date().getFullYear();</script>
+</body>
+</html>
