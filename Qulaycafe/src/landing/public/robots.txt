@@ -1,0 +1,25 @@
+# robots.txt for qulaycafe.uz (the marketing site).
+#
+# Served from landing/ by server.ts, so it only answers on the landing
+# hostnames — the app surfaces (admin./kitchen./clients.) are a different
+# document root and never see this file.
+#
+# Cloudflare sits in front of this zone with managed robots.txt enabled: it
+# PREPENDS its own block (the Content Signals policy and the AI-crawler
+# Disallow list) to whatever the origin returns, so the live file is Cloudflare's
+# block followed by this one. Two consequences worth knowing:
+#
+#   * The Sitemap line below can be dropped by that merge. Google Search
+#     Console → Sitemaps is the authoritative place to submit it; this line is
+#     the belt-and-braces copy for every other crawler.
+#   * Google-Extended: Disallow that Cloudflare injects is about Gemini
+#     training data, NOT about Search. It does not keep the site out of the
+#     index. Do not "fix" it to get indexed.
+#
+# Nothing here is disallowed: the apex is one public marketing page plus four
+# static sub-pages, all of them meant to be found.
+
+User-agent: *
+Allow: /
+
+Sitemap: https://qulaycafe.uz/sitemap.xml

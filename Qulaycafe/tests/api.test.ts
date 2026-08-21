@@ -151,13 +151,17 @@ describe('authorization', () => {
 });
 
 describe('menu item photo upload', () => {
-  it('accepts a menu item with an uploaded base64 photo (previously rejected — image field was capped at 2000 chars)', async () => {
+  // Uploaded photos are stored as bytes and referenced by URL. Keeping them
+  // inline as base64 in menu_items.data is what made /api/menu ~4 MB for a real
+  // menu, so "the dish still has its photo" now means "the URL serves the same
+  // bytes", not "the JSON contains them".
+  it('stores an uploaded base64 photo out of line and serves it from a cacheable URL', async () => {
     const cookie = adminCookie;
 
     // Simulate a real uploaded photo: a base64 data URL comfortably longer
     // than 2000 characters (the old, broken limit).
-    const fakePhotoBase64 = 'A'.repeat(50_000);
-    const dataUrl = `data:image/jpeg;base64,${fakePhotoBase64}`;
+    const pixels = Buffer.alloc(50_000, 7);
+    const dataUrl = `data:image/jpeg;base64,${pixels.toString('base64')}`;
 
     const res = await fetch(`${BASE_URL}/api/menu`, {
       method: 'POST',
@@ -166,7 +170,112 @@ describe('menu item photo upload', () => {
     });
     expect(res.status).toBe(201);
     const created = await res.json();
-    expect(created.image).toBe(dataUrl);
+
+    // The photo left the row: what remains is a short URL carrying the tenant
+    // (an <img> tag cannot send X-Restaurant-Id) and the content hash.
+    expect(created.image).toMatch(
+      new RegExp(`^/api/menu/${created.id}/image\\?r=[^&]+&v=[0-9a-f]{16}$`)
+    );
+    expect(created.image.length).toBeLessThan(200);
+
+    const photo = await fetch(`${BASE_URL}${created.image}`);
+    expect(photo.status).toBe(200);
+    expect(photo.headers.get('content-type')).toBe('image/jpeg');
+    // Immutable: a replaced photo gets a new ?v=, so a cached copy can never be stale.
+    expect(photo.headers.get('cache-control')).toContain('immutable');
+    expect(Buffer.from(await photo.arrayBuffer()).equals(pixels)).toBe(true);
+
+    // Re-saving the dish without touching the photo must not lose it: the admin
+    // form round-trips the URL it was given, which the validator has to accept.
+    const update = await fetch(`${BASE_URL}/api/menu/${created.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({ ...created, price: 51000 })
+    });
+    expect(update.status).toBe(200);
+    expect((await update.json()).image).toBe(created.image);
+
+    // And the menu list stays small — the photo is a URL there too.
+    const menu = await fetch(`${BASE_URL}/api/menu`);
+    const listed = (await menu.json()).find((item: any) => item.id === created.id);
+    expect(listed.image).toBe(created.image);
+  });
+
+  it('serves 304 for a photo the browser already has', async () => {
+    const cookie = adminCookie;
+    const dataUrl = `data:image/png;base64,${Buffer.alloc(1024, 3).toString('base64')}`;
+    const created = await (
+      await fetch(`${BASE_URL}/api/menu`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: cookie },
+        body: JSON.stringify({ nameUz: 'Etag Dish', nameRu: 'Etag Dish', nameEn: 'Etag Dish', price: 1000, category: 'ikkinchi_taom', image: dataUrl })
+      })
+    ).json();
+
+    const first = await fetch(`${BASE_URL}${created.image}`);
+    const etag = first.headers.get('etag') as string;
+    expect(etag).toBeTruthy();
+
+    const second = await fetch(`${BASE_URL}${created.image}`, { headers: { 'If-None-Match': etag } });
+    expect(second.status).toBe(304);
+  });
+
+  it('404s for a photo that does not exist', async () => {
+    const res = await fetch(`${BASE_URL}/api/menu/m-does-not-exist/image`);
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('restaurant logo', () => {
+  // The logo lives in image_blobs like a dish photo, because inline base64 in
+  // restaurants.logo_url made /api/settings ~400 KB on every page load. The
+  // risk of that move is "the logo silently disappears", so this asserts the
+  // whole round-trip: upload -> settings hands out a short URL -> that URL
+  // serves the original bytes.
+  it('stores an uploaded logo out of line and serves it from /api/branding/logo', async () => {
+    const pixels = Buffer.alloc(20_000, 11);
+    const dataUrl = `data:image/png;base64,${pixels.toString('base64')}`;
+
+    const saved = await fetch(`${BASE_URL}/api/admin/branding`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({ logoUrl: dataUrl, brandColor: '#f97316', displayName: 'Logo Test Cafe' })
+    });
+    expect(saved.status).toBe(200);
+
+    const settings = await (await fetch(`${BASE_URL}/api/settings`)).json();
+    expect(settings.logoUrl).toMatch(/^\/api\/branding\/logo\?r=[^&]+&v=[0-9a-f]{16}$/);
+    expect(settings.logoUrl.length).toBeLessThan(200);
+
+    const logo = await fetch(`${BASE_URL}${settings.logoUrl}`);
+    expect(logo.status).toBe(200);
+    expect(logo.headers.get('content-type')).toBe('image/png');
+    expect(logo.headers.get('cache-control')).toContain('immutable');
+    expect(Buffer.from(await logo.arrayBuffer()).equals(pixels)).toBe(true);
+
+    // Saving branding again without touching the logo must keep it: the admin
+    // form sends back the URL it was given, not the base64.
+    const resave = await fetch(`${BASE_URL}/api/admin/branding`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({ logoUrl: settings.logoUrl, displayName: 'Logo Test Cafe' })
+    });
+    expect(resave.status).toBe(200);
+    const after = await (await fetch(`${BASE_URL}/api/settings`)).json();
+    expect(after.logoUrl).toBe(settings.logoUrl);
+  });
+
+  it('clears the logo when an empty string is saved', async () => {
+    const cleared = await fetch(`${BASE_URL}/api/admin/branding`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({ logoUrl: '' })
+    });
+    expect(cleared.status).toBe(200);
+
+    const settings = await (await fetch(`${BASE_URL}/api/settings`)).json();
+    expect(settings.logoUrl).toBeNull();
+    expect((await fetch(`${BASE_URL}/api/branding/logo`)).status).toBe(404);
   });
 });
 

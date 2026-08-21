@@ -1,0 +1,152 @@
+<!doctype html>
+<!--
+  /haqida — what QulayCafe is, as plain HTML.
+
+  The landing page says the same things across a dozen animated sections; this
+  is the version a crawler, a reader-mode, or somebody on a slow connection
+  gets in one request. See the note at the top of static-page.css for why these
+  pages are not part of the React bundle.
+
+  Every claim here has to stay true of the shipped system: no invented customer
+  counts, no feature tiers, no self-service signup. Same rule as the landing
+  components.
+-->
+<html lang="uz">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>QulayCafe haqida — restoranlar uchun raqamli tizim</title>
+    <meta
+      name="description"
+      content="QulayCafe — Oʻzbekistondagi restoran va kafelar uchun QR-menyu, buyurtma, oshxona ekrani, stollar, dostavka va hisobotlarni bitta tizimda birlashtirgan platforma."
+    />
+    <meta name="theme-color" content="#FAF9F6" />
+    <link rel="canonical" href="https://qulaycafe.uz/haqida" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://qulaycafe.uz/haqida" />
+    <meta property="og:site_name" content="QulayCafe" />
+    <meta property="og:locale" content="uz_UZ" />
+    <meta property="og:title" content="QulayCafe haqida" />
+    <meta
+      property="og:description"
+      content="QR-menyu, oshxona ekrani, stollar, dostavka va hisobotlar — restoran uchun bitta tizim."
+    />
+    <meta property="og:image" content="https://qulaycafe.uz/icon-512.png" />
+
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="icon" href="/icon-48.png" sizes="48x48" type="image/png" />
+    <link rel="icon" href="/icon-96.png" sizes="96x96" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-icon.png" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500&family=Manrope:wght@400..600&display=swap"
+    />
+    <link rel="stylesheet" href="/static-page.css" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          {"@type": "ListItem", "position": 1, "name": "Bosh sahifa", "item": "https://qulaycafe.uz/"},
+          {"@type": "ListItem", "position": 2, "name": "Haqida", "item": "https://qulaycafe.uz/haqida"}
+        ]
+      }
+    </script>
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="wrap">
+        <a class="brand" href="/">
+          <img src="/logo.svg" width="36" height="36" alt="" />
+          Qulay<span>Cafe</span>
+        </a>
+        <nav class="header-nav" aria-label="Asosiy menyu">
+          <a href="/haqida" aria-current="page">Haqida</a>
+          <a href="/narxlar">Narxlar</a>
+          <a href="/kirish">Kirish</a>
+          <a href="/aloqa">Aloqa</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <nav class="crumbs" aria-label="Qaydasiz"><a href="/">Bosh sahifa</a> / Haqida</nav>
+
+      <span class="eyebrow">Haqida</span>
+      <h1>QulayCafe — restoranni bitta tizimdan boshqarish</h1>
+      <p class="lede">
+        QulayCafe restoran va kafelar uchun ishlab chiqilgan: mehmon stoldagi QR
+        kodni skanerlab buyurtma beradi, buyurtma to'g'ridan-to'g'ri oshxona
+        ekraniga tushadi, egasi esa menyu, stollar, ombor va hisobotlarni bitta
+        paneldan boshqaradi.
+      </p>
+
+      <h2>Nima ishlaydi</h2>
+      <ul class="checks">
+        <li>QR-menyu — o'zbek, rus va ingliz tillarida</li>
+        <li>Buyurtma va savat — mehmon telefonidan</li>
+        <li>Oshxona ekrani — kelayotgan buyurtmalar navbati</li>
+        <li>Stollar xaritasi va har bir stol uchun QR kod</li>
+        <li>Bron qilish</li>
+        <li>Dostavka va olib ketish</li>
+        <li>Ombor nazorati</li>
+        <li>Hisobotlar va Excel'ga eksport</li>
+        <li>Logotip va rang sozlamalari — menyu sizning brendingizda</li>
+      </ul>
+
+      <h2>Tizim to'rt manzilga bo'lingan</h2>
+      <p>
+        Har bir bo'lim alohida manzilda ishlaydi: mehmon oshxona ekranini,
+        oshpaz esa hisobotlarni ko'rmaydi. Bu shunchaki menyu emas, balki
+        rollarga bo'lingan tizim.
+      </p>
+      <dl class="facts">
+        <div>
+          <dt>Ochiq sahifa</dt>
+          <dd>qulaycafe.uz</dd>
+        </div>
+        <div>
+          <dt>Mehmon menyusi</dt>
+          <dd>clients.qulaycafe.uz</dd>
+        </div>
+        <div>
+          <dt>Oshxona ekrani</dt>
+          <dd>kitchen.qulaycafe.uz</dd>
+        </div>
+        <div>
+          <dt>Egasi paneli</dt>
+          <dd><a href="/kirish">admin.qulaycafe.uz</a></dd>
+        </div>
+      </dl>
+
+      <h2>Qanday boshlanadi</h2>
+      <p>
+        Ro'yxatdan o'tish formasi yo'q — har bir restoranni qo'lda sozlaymiz.
+        Yozganingizdan keyin menyuni ko'chirib beramiz, stollarga QR kodlar
+        chiqaramiz va 14 kunlik bepul sinov shu kuni boshlanadi. Karta talab
+        qilinmaydi.
+      </p>
+      <div class="actions">
+        <a class="btn btn-primary" href="https://t.me/Aslbek_fullstack" rel="noreferrer noopener">Telegram'da yozish</a>
+        <a class="btn btn-ghost" href="/narxlar">Narxlarni ko'rish</a>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <p>&copy; 2026 QulayCafe</p>
+        <nav class="footer-nav" aria-label="Sahifalar">
+          <a href="/">Bosh sahifa</a>
+          <a href="/narxlar">Narxlar</a>
+          <a href="/kirish">Kirish</a>
+          <a href="/aloqa">Aloqa</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

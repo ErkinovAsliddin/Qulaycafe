@@ -34,9 +34,19 @@ export const customizationGroupSchema = z
 const imageField = z
   .string()
   .max(4_000_000) // generous enough for a base64-encoded uploaded photo
-  .refine(val => val === '' || val.startsWith('data:image/') || /^https?:\/\//.test(val), {
-    message: 'image must be a valid http(s) URL, an uploaded image, or empty'
-  })
+  .refine(
+    val =>
+      val === '' ||
+      val.startsWith('data:image/') ||
+      /^https?:\/\//.test(val) ||
+      // A photo already uploaded and stored as bytes: the admin form round-trips
+      // the whole dish on save, so an unchanged photo comes back as the URL we
+      // handed out rather than as base64.
+      /^\/api\/(menu\/[^/]+\/image|branding\/logo)(\?|$)/.test(val),
+    {
+      message: 'image must be a valid http(s) URL, an uploaded image, or empty'
+    }
+  )
   .optional();
 
 // Categories are rows now, not a fixed union, so a dish's category can only be

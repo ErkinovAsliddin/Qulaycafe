@@ -213,3 +213,86 @@ describe('hostname never grants authorization', () => {
     expect(res.status).toBe(401);
   });
 });
+
+// Everything a search engine needs is a static file under src/landing/public/,
+// which means the only way it can break is silently: the landing hostname
+// answers an unmatched path with index.html and a 200, so a file that stopped
+// being copied into landing/ looks exactly like a file that is there — until
+// someone checks Search Console weeks later. These assertions are the check.
+//
+// Requires a built landing/ (`npm run build:landing`), same as the marketing
+// page assertions above.
+describe('the apex serves what a search engine needs', () => {
+  const LANDING_MARKER = 'name="qulaycafe-surface" content="landing"';
+
+  it('serves robots.txt as text, pointing at the sitemap', async () => {
+    const res = await getAs(LANDING_HOST, '/robots.txt');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/plain');
+    const body = await res.text();
+    expect(body).toContain('Sitemap: https://qulaycafe.uz/sitemap.xml');
+    // Allow: /, not Disallow: / — the whole apex is meant to be indexed.
+    expect(body).toMatch(/User-agent: \*\s+Allow: \//);
+  });
+
+  it('serves a sitemap listing every real apex URL', async () => {
+    const res = await getAs(LANDING_HOST, '/sitemap.xml');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('xml');
+    const body = await res.text();
+    for (const loc of ['/', '/kirish', '/haqida', '/narxlar', '/aloqa']) {
+      expect(body).toContain(`<loc>https://qulaycafe.uz${loc}</loc>`);
+    }
+  });
+
+  // Each of these is a real document, not the SPA fallback. The canonical tag
+  // is what separates the two: a missing file would return index.html, whose
+  // canonical is the apex root.
+  it.each([
+    ['/kirish', 'Tizimga kirish'],
+    ['/haqida', 'QulayCafe haqida'],
+    ['/narxlar', 'Narxlar'],
+    ['/aloqa', 'Aloqa']
+  ])('serves %s as its own indexable page', async (urlPath, titleFragment) => {
+    const res = await getAs(LANDING_HOST, urlPath);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/html');
+    const html = await res.text();
+    expect(html).toContain(`<link rel="canonical" href="https://qulaycafe.uz${urlPath}" />`);
+    expect(html).toContain(titleFragment);
+    expect(html).not.toContain(LANDING_MARKER);
+    // No bundle: the text has to be in the response whether or not the crawler
+    // runs JavaScript.
+    expect(html).not.toContain('<div id="root">');
+  });
+
+  it('describes the business in the marketing page head', async () => {
+    const html = await (await getAs(LANDING_HOST, '/')).text();
+    expect(html).toContain('application/ld+json');
+    expect(html).toContain('"@id": "https://qulaycafe.uz/#organization"');
+    // The logo Google reads for the knowledge panel.
+    expect(html).toContain('"url": "https://qulaycafe.uz/icon-512.png"');
+  });
+
+  // The favicon shown next to a search result. These files used to be v0's
+  // logo; if the icon set goes missing the search result falls back to a blank
+  // globe, which is not something a page render would ever reveal.
+  it.each([
+    ['/logo.svg', 'image/svg'],
+    ['/icon-48.png', 'image/png'],
+    ['/icon-96.png', 'image/png'],
+    ['/icon-512.png', 'image/png'],
+    ['/apple-icon.png', 'image/png']
+  ])('serves %s', async (urlPath, mime) => {
+    const res = await getAs(LANDING_HOST, urlPath);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain(mime);
+  });
+
+  it('references the brand icons, and none of the icons v0 left behind', async () => {
+    const html = await (await getAs(LANDING_HOST, '/')).text();
+    expect(html).toContain('href="/icon-48.png"');
+    expect(html).not.toContain('icon-light-32x32');
+    expect(html).not.toContain('icon-dark-32x32');
+  });
+});

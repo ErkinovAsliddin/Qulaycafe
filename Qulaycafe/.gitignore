@@ -4,7 +4,12 @@ dist
 # The marketing site is built from src/landing/ by `npm run build:landing`.
 # The hand-written page that used to live here is archived at
 # docs/legacy-landing.html.
-landing
+#
+# Anchored with a leading slash — a bare `landing` matches at ANY depth, which
+# silently excluded src/landing/ too: the entire marketing site (its components,
+# its images, robots.txt, the sitemap) was untracked, so `git status` stayed
+# clean no matter what changed in it. Only the build output belongs here.
+/landing
 
 # Live SQLite database and backups
 data

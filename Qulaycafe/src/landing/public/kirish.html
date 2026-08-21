@@ -1,0 +1,155 @@
+<!doctype html>
+<!--
+  /kirish — the login hub for the apex.
+
+  Deliberately plain HTML, not part of the React landing bundle: see the note at
+  the top of static-page.css. This is also the page most likely to be somebody's
+  first search ("qulaycafe kirish", "qulaycafe login"), and there is no single
+  login URL to send them to — the four surfaces each have their own hostname —
+  so this page is the answer to that search.
+
+  It holds no form and no credentials. Authentication lives on admin. and
+  kitchen.; this is signposting only.
+-->
+<html lang="uz">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Tizimga kirish — QulayCafe</title>
+    <meta
+      name="description"
+      content="QulayCafe tizimiga kirish: restoran egasi uchun admin panel, oshxona ekrani va mehmon menyusi. Har bir bo'lim o'z manzilida ochiladi."
+    />
+    <meta name="theme-color" content="#FAF9F6" />
+    <link rel="canonical" href="https://qulaycafe.uz/kirish" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://qulaycafe.uz/kirish" />
+    <meta property="og:site_name" content="QulayCafe" />
+    <meta property="og:locale" content="uz_UZ" />
+    <meta property="og:title" content="Tizimga kirish — QulayCafe" />
+    <meta
+      property="og:description"
+      content="Admin panel, oshxona ekrani va mehmon menyusi — QulayCafe bo'limlariga kirish."
+    />
+    <meta property="og:image" content="https://qulaycafe.uz/icon-512.png" />
+
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="icon" href="/icon-48.png" sizes="48x48" type="image/png" />
+    <link rel="icon" href="/icon-96.png" sizes="96x96" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-icon.png" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500&family=Manrope:wght@400..600&display=swap"
+    />
+    <link rel="stylesheet" href="/static-page.css" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          {"@type": "ListItem", "position": 1, "name": "Bosh sahifa", "item": "https://qulaycafe.uz/"},
+          {"@type": "ListItem", "position": 2, "name": "Tizimga kirish", "item": "https://qulaycafe.uz/kirish"}
+        ]
+      }
+    </script>
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="wrap">
+        <a class="brand" href="/">
+          <img src="/logo.svg" width="36" height="36" alt="" />
+          Qulay<span>Cafe</span>
+        </a>
+        <nav class="header-nav" aria-label="Asosiy menyu">
+          <a href="/haqida">Haqida</a>
+          <a href="/narxlar">Narxlar</a>
+          <a href="/kirish" aria-current="page">Kirish</a>
+          <a href="/aloqa">Aloqa</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <nav class="crumbs" aria-label="Qaydasiz">
+        <a href="/">Bosh sahifa</a> / Tizimga kirish
+      </nav>
+
+      <span class="eyebrow">Kirish</span>
+      <h1>QulayCafe tizimiga kirish</h1>
+      <p class="lede">
+        Tizim to'rtta manzilga bo'lingan — shuning uchun bitta umumiy kirish
+        sahifasi yo'q. Quyidan o'zingizga keragini tanlang.
+      </p>
+
+      <div class="grid cols-3">
+        <div class="card is-primary">
+          <h3>Restoran egasi</h3>
+          <p class="host">admin.qulaycafe.uz</p>
+          <p>
+            Menyu, narxlar, stollar, QR kodlar, ombor, hisobotlar va sozlamalar.
+            Login va parol bilan kiriladi.
+          </p>
+          <span class="spacer"></span>
+          <a class="btn btn-primary" href="https://admin.qulaycafe.uz">Panelga kirish</a>
+        </div>
+
+        <div class="card">
+          <h3>Oshxona</h3>
+          <p class="host">kitchen.qulaycafe.uz</p>
+          <p>
+            Faqat kelayotgan buyurtmalar ko'rinadi. Oshpaz planshetida bir marta
+            ochib qo'yiladi.
+          </p>
+          <span class="spacer"></span>
+          <a class="btn btn-ghost" href="https://kitchen.qulaycafe.uz">Oshxona ekrani</a>
+        </div>
+
+        <div class="card">
+          <h3>Mehmon</h3>
+          <p class="host">clients.qulaycafe.uz</p>
+          <p>
+            Stoldagi QR kod skanerlanganda ochiladi. Parol talab qilinmaydi, lekin
+            qaysi restoran va qaysi stol ekani QR koddan olinadi — shuning uchun
+            to'g'ridan-to'g'ri havola bilan ochilmaydi.
+          </p>
+        </div>
+      </div>
+
+      <h2>Parolni yo'qotdingizmi?</h2>
+      <p>
+        Parolni o'zimiz tiklab beramiz — hisoblar qo'lda ochilgani uchun
+        avtomatik tiklash yo'q. Telegram'ga yozing yoki qo'ng'iroq qiling.
+      </p>
+      <div class="actions">
+        <a class="btn btn-primary" href="https://t.me/Aslbek_fullstack" rel="noreferrer noopener">Telegram'da yozish</a>
+        <a class="btn btn-ghost" href="tel:+998943448228">+998 94 344 82 28</a>
+      </div>
+
+      <h2>Hisobingiz yo'qmi?</h2>
+      <p>
+        Ro'yxatdan o'tish formasi yo'q: har bir restoranni biz sozlab beramiz —
+        menyuni ko'chiramiz, stollarga QR kodlar chiqaramiz va 14 kunlik bepul
+        sinov shu kuni boshlanadi.
+        <a href="/narxlar">Narxlar haqida</a> yoki
+        <a href="/haqida">tizim haqida</a> o'qing.
+      </p>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <p>&copy; 2026 QulayCafe</p>
+        <nav class="footer-nav" aria-label="Sahifalar">
+          <a href="/">Bosh sahifa</a>
+          <a href="/haqida">Haqida</a>
+          <a href="/narxlar">Narxlar</a>
+          <a href="/aloqa">Aloqa</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

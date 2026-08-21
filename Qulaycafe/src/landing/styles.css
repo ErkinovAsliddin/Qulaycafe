@@ -1,0 +1,121 @@
+/* Marketing site (qulaycafe.uz) design tokens.
+ *
+ * `source(none)` + an explicit `@source` keeps Tailwind's class scan inside
+ * src/landing: without it the scan starts at the project root and this
+ * stylesheet would also carry every utility the four app surfaces use.
+ */
+@import 'tailwindcss' source(none);
+@source './';
+
+/* The marketing site is intentionally light-only (index.html pins
+   class="light"), so there is no dark palette here — the four app surfaces
+   each carry their own. */
+@theme inline {
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+  /* index.html loads both faces from Google Fonts; the original used
+     next/font, which does not exist in a Vite build. */
+  --font-sans: 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  --font-serif: 'Fraunces', ui-serif, Georgia, serif;
+}
+
+:root {
+  color-scheme: light;
+  --background: oklch(0.977 0.004 84);
+  --foreground: oklch(0.22 0.006 170);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.22 0.006 170);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.22 0.006 170);
+  --primary: oklch(0.53 0.088 158);
+  --primary-foreground: oklch(0.985 0.005 84);
+  --secondary: oklch(0.9 0.018 80);
+  --secondary-foreground: oklch(0.32 0.02 90);
+  --muted: oklch(0.955 0.008 140);
+  --muted-foreground: oklch(0.52 0.016 160);
+  --accent: oklch(0.72 0.1 157);
+  --accent-foreground: oklch(0.22 0.02 160);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.9 0.008 130);
+  --input: oklch(0.9 0.008 130);
+  --ring: oklch(0.53 0.088 158);
+  --chart-1: oklch(0.53 0.088 158);
+  --chart-2: oklch(0.62 0.1 158);
+  --chart-3: oklch(0.72 0.1 157);
+  --chart-4: oklch(0.8 0.06 150);
+  --chart-5: oklch(0.86 0.03 90);
+  --radius: 0.85rem;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    /* Every in-page link (Narxlar, Qanday ishlaydi, …) has to clear the fixed
+       header, otherwise the section heading lands underneath it. */
+    scroll-padding-top: 5.5rem;
+    /* Stops iOS from inflating body text when a phone is turned sideways. */
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    overflow-x: hidden;
+  }
+  ::selection {
+    background: oklch(0.72 0.1 157 / 0.35);
+    color: oklch(0.22 0.006 170);
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  .text-pretty {
+    text-wrap: pretty;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

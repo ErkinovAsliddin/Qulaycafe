@@ -1,0 +1,130 @@
+<!doctype html>
+<!--
+  /aloqa — contact details.
+
+  Only details that are already public elsewhere on the site (the landing
+  footer, and /api/registration-info): the Telegram account and the phone
+  number, both from VITE_CONTACT_* in .env. No address and no opening hours —
+  neither exists as a verified fact, and inventing them in ContactPage markup
+  would put a wrong claim in front of Google.
+
+  If the contact details in .env change, they change here too; this file is
+  copied verbatim by Vite and cannot read import.meta.env.
+-->
+<html lang="uz">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Aloqa — QulayCafe</title>
+    <meta
+      name="description"
+      content="QulayCafe bilan bog'lanish: Telegram @Aslbek_fullstack, telefon +998 94 344 82 28. Demo, narxlar va parolni tiklash bo'yicha yozing."
+    />
+    <meta name="theme-color" content="#FAF9F6" />
+    <link rel="canonical" href="https://qulaycafe.uz/aloqa" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://qulaycafe.uz/aloqa" />
+    <meta property="og:site_name" content="QulayCafe" />
+    <meta property="og:locale" content="uz_UZ" />
+    <meta property="og:title" content="Aloqa — QulayCafe" />
+    <meta property="og:description" content="Telegram va telefon orqali bog'laning — demoga yozilish va savollar." />
+    <meta property="og:image" content="https://qulaycafe.uz/icon-512.png" />
+
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="icon" href="/icon-48.png" sizes="48x48" type="image/png" />
+    <link rel="icon" href="/icon-96.png" sizes="96x96" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-icon.png" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500&family=Manrope:wght@400..600&display=swap"
+    />
+    <link rel="stylesheet" href="/static-page.css" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "ContactPage",
+        "url": "https://qulaycafe.uz/aloqa",
+        "name": "Aloqa — QulayCafe",
+        "inLanguage": "uz",
+        "isPartOf": {"@type": "WebSite", "@id": "https://qulaycafe.uz/#website"},
+        "about": {"@id": "https://qulaycafe.uz/#organization"},
+        "breadcrumb": {
+          "@type": "BreadcrumbList",
+          "itemListElement": [
+            {"@type": "ListItem", "position": 1, "name": "Bosh sahifa", "item": "https://qulaycafe.uz/"},
+            {"@type": "ListItem", "position": 2, "name": "Aloqa", "item": "https://qulaycafe.uz/aloqa"}
+          ]
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="wrap">
+        <a class="brand" href="/">
+          <img src="/logo.svg" width="36" height="36" alt="" />
+          Qulay<span>Cafe</span>
+        </a>
+        <nav class="header-nav" aria-label="Asosiy menyu">
+          <a href="/haqida">Haqida</a>
+          <a href="/narxlar">Narxlar</a>
+          <a href="/kirish">Kirish</a>
+          <a href="/aloqa" aria-current="page">Aloqa</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <nav class="crumbs" aria-label="Qaydasiz"><a href="/">Bosh sahifa</a> / Aloqa</nav>
+
+      <span class="eyebrow">Aloqa</span>
+      <h1>Yozing — restoraningizni ulab beramiz</h1>
+      <p class="lede">
+        Demo ko'rsatish, narx va sozlash bo'yicha to'g'ridan-to'g'ri bog'lanish.
+        Telegram odatda tezroq javob beradi.
+      </p>
+
+      <dl class="facts">
+        <div>
+          <dt>Telegram</dt>
+          <dd><a href="https://t.me/Aslbek_fullstack" rel="noreferrer noopener">@Aslbek_fullstack</a></dd>
+        </div>
+        <div>
+          <dt>Telefon</dt>
+          <dd><a href="tel:+998943448228">+998 94 344 82 28</a></dd>
+        </div>
+      </dl>
+
+      <h2>Nima bo'yicha yozish mumkin</h2>
+      <ul class="checks">
+        <li>Demo ko'rish va 14 kunlik bepul sinovni boshlash</li>
+        <li>Narxni kelishish — <a href="/narxlar">narxlar sahifasi</a></li>
+        <li>Menyuni ko'chirish va stollarga QR kodlar chiqarish</li>
+        <li>Panel parolini tiklash — <a href="/kirish">kirish sahifasi</a></li>
+        <li>Xodimlarni tizimga o'rgatish</li>
+      </ul>
+
+      <div class="actions">
+        <a class="btn btn-primary" href="https://t.me/Aslbek_fullstack" rel="noreferrer noopener">Telegram'da yozish</a>
+        <a class="btn btn-ghost" href="tel:+998943448228">Qo'ng'iroq qilish</a>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <p>&copy; 2026 QulayCafe</p>
+        <nav class="footer-nav" aria-label="Sahifalar">
+          <a href="/">Bosh sahifa</a>
+          <a href="/haqida">Haqida</a>
+          <a href="/narxlar">Narxlar</a>
+          <a href="/kirish">Kirish</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

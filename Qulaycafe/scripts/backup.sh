@@ -25,13 +25,31 @@ if [ ! -f "$DB_FILE" ]; then
   exit 0
 fi
 
-# sqlite3's ".backup" command produces a consistent snapshot even while the
-# app is writing (unlike a plain file copy, which could grab a half-written
-# WAL-mode file).
+# A plain `cp` of the database file is NOT a backup here: the database runs in
+# WAL mode, where a committed transaction lives in the `restaurant.db-wal`
+# sidecar until a checkpoint folds it into the main file. Copying the main file
+# alone silently loses every transaction since the last checkpoint — that is
+# exactly how the Bellscan -> Qulaycafe migration lost 21 dishes, including a
+# whole drinks section.
+#
+# Both branches below take a consistent snapshot of the WHOLE database:
+#   - sqlite3 ".backup" uses SQLite's online backup API;
+#   - "VACUUM INTO" (SQLite 3.27+) writes a fully checkpointed copy.
+# The node branch exists because the app's own container ships node and
+# better-sqlite3 but no sqlite3 CLI, so this script must not depend on the CLI.
 if command -v sqlite3 >/dev/null 2>&1; then
   sqlite3 "$DB_FILE" ".backup '$BACKUP_DIR/restaurant-$STAMP.db'"
+elif command -v node >/dev/null 2>&1; then
+  node -e '
+    const Database = require("better-sqlite3");
+    const db = new Database(process.argv[1], { readonly: true });
+    db.prepare("VACUUM INTO ?").run(process.argv[2]);
+    db.close();
+  ' "$DB_FILE" "$BACKUP_DIR/restaurant-$STAMP.db"
 else
-  cp "$DB_FILE" "$BACKUP_DIR/restaurant-$STAMP.db"
+  echo "Neither sqlite3 nor node is available — refusing to take an unsafe file-copy backup." >&2
+  echo "Install sqlite3, or run this script where the app's node runtime lives." >&2
+  exit 1
 fi
 
 echo "Backup written to $BACKUP_DIR/restaurant-$STAMP.db"

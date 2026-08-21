@@ -367,6 +367,26 @@ function createBaseSchema() {
       ON categories (restaurant_id, lower(name_uz));
     CREATE INDEX IF NOT EXISTS idx_categories_sort
       ON categories (restaurant_id, sort_order, id);
+
+    -- Uploaded photos, as bytes, one row per dish photo / restaurant logo.
+    --
+    -- They used to be kept as base64 data: URIs INSIDE menu_items.data and
+    -- restaurants.logo_url, which meant /api/menu served every photo of every
+    -- dish inline, in one uncacheable JSON response — a real menu came to
+    -- ~4 MB and took 5+ seconds on a phone before the first dish appeared.
+    -- Stored separately, the JSON carries a URL (~60 bytes) instead, and each
+    -- photo is fetched once and then cached by the browser forever (the URL
+    -- carries the content hash, so replacing a photo changes the URL).
+    CREATE TABLE IF NOT EXISTS image_blobs (
+      restaurant_id TEXT NOT NULL,
+      owner TEXT NOT NULL,       -- 'menu_item' | 'logo'
+      owner_id TEXT NOT NULL,    -- menu item id; '' for the restaurant logo
+      mime TEXT NOT NULL,
+      bytes BLOB NOT NULL,
+      sha TEXT NOT NULL,         -- content hash, used as the cache-busting URL version
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (restaurant_id, owner, owner_id)
+    );
   `);
 }
 
@@ -719,12 +739,148 @@ function migrateSeedCategories() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Uploaded photos: stored as bytes in image_blobs, referenced by URL.
+//
+// The admin UI uploads a photo as a base64 `data:image/...` URI (it resizes to
+// 800px and re-encodes as JPEG in the browser first). Every write path hands
+// that string to storeImageBlob, which keeps the decoded bytes here and hands
+// back the URL to save in the row instead. Reads therefore stay exactly as
+// cheap as any other menu field.
+// ---------------------------------------------------------------------------
+export const MENU_ITEM_IMAGE_PATH = (itemId: string) => `/api/menu/${encodeURIComponent(itemId)}/image`;
+export const LOGO_IMAGE_PATH = '/api/branding/logo';
+
+export interface ImageBlob {
+  mime: string;
+  bytes: Buffer;
+  sha: string;
+}
+
+/** True for a value this app serves itself (as opposed to a data: URI or a remote photo). */
+export function isInternalImageUrl(value: string): boolean {
+  return /^\/api\/(menu\/[^/]+\/image|branding\/logo)(\?|$)/.test(value);
+}
+
+/**
+ * Splits a `data:image/jpeg;base64,...` URI into mime + bytes. Returns null for
+ * anything else (an http(s) URL, one of our own URLs, or junk), which callers
+ * treat as "nothing to extract, store the string as-is".
+ */
+function parseDataUri(value: unknown): { mime: string; bytes: Buffer } | null {
+  if (typeof value !== 'string') return null;
+  const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,([\s\S]+)$/.exec(value.trim());
+  if (!match) return null;
+  const bytes = Buffer.from(match[2], 'base64');
+  if (bytes.length === 0) return null;
+  return { mime: match[1], bytes };
+}
+
+function buildImageUrl(basePath: string, restaurantId: string, sha: string): string {
+  // `r` is what makes the URL work in an <img> tag: an image request carries no
+  // X-Restaurant-Id header, so the tenant has to travel in the URL. `v` is the
+  // content hash, which is what lets the response be cached immutably — a new
+  // photo means a new URL rather than a stale one.
+  return `${basePath}?r=${encodeURIComponent(restaurantId)}&v=${sha}`;
+}
+
+/**
+ * If `value` is an uploaded data: URI, store the bytes and return our own URL
+ * for it. Otherwise return the value untouched (an http(s) photo URL, one of
+ * our URLs from a previous save, or '').
+ */
+export function storeImageBlob(
+  restaurantId: string,
+  owner: 'menu_item' | 'logo',
+  ownerId: string,
+  value: string
+): string {
+  const parsed = parseDataUri(value);
+  if (!parsed) return value;
+  const sha = crypto.createHash('sha256').update(parsed.bytes).digest('hex').slice(0, 16);
+  db.prepare(
+    `INSERT INTO image_blobs (restaurant_id, owner, owner_id, mime, bytes, sha, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (restaurant_id, owner, owner_id)
+       DO UPDATE SET mime = excluded.mime, bytes = excluded.bytes, sha = excluded.sha,
+                     updated_at = excluded.updated_at`
+  ).run(restaurantId, owner, ownerId, parsed.mime, parsed.bytes, sha, new Date().toISOString());
+  return buildImageUrl(owner === 'logo' ? LOGO_IMAGE_PATH : MENU_ITEM_IMAGE_PATH(ownerId), restaurantId, sha);
+}
+
+export function getImageBlob(restaurantId: string, owner: 'menu_item' | 'logo', ownerId: string): ImageBlob | undefined {
+  return db
+    .prepare('SELECT mime, bytes, sha FROM image_blobs WHERE restaurant_id = ? AND owner = ? AND owner_id = ?')
+    .get(restaurantId, owner, ownerId) as ImageBlob | undefined;
+}
+
+export function deleteImageBlob(restaurantId: string, owner: 'menu_item' | 'logo', ownerId: string) {
+  db.prepare('DELETE FROM image_blobs WHERE restaurant_id = ? AND owner = ? AND owner_id = ?').run(
+    restaurantId,
+    owner,
+    ownerId
+  );
+}
+
+/** Puts the bytes back inline, for the admin's export file (which has to stay portable). */
+export function inlineImageBlob(restaurantId: string, owner: 'menu_item' | 'logo', ownerId: string, url: string): string {
+  if (!isInternalImageUrl(url)) return url;
+  const blob = getImageBlob(restaurantId, owner, ownerId);
+  if (!blob) return '';
+  return `data:${blob.mime};base64,${Buffer.from(blob.bytes).toString('base64')}`;
+}
+
+/**
+ * Moves photos that predate image_blobs out of the JSON/column they were
+ * inlined into. Idempotent: once a row holds a URL instead of a data: URI
+ * there is nothing left to match.
+ */
+function migrateExtractInlineImages() {
+  const items = db
+    .prepare(`SELECT restaurant_id, id, data FROM menu_items WHERE data LIKE '%"image":"data:%'`)
+    .all() as { restaurant_id: string; id: string; data: string }[];
+
+  const updateItem = db.prepare('UPDATE menu_items SET data = ? WHERE restaurant_id = ? AND id = ?');
+  let movedItems = 0;
+  const itemTx = db.transaction(() => {
+    for (const row of items) {
+      let parsed: any;
+      try {
+        parsed = JSON.parse(row.data);
+      } catch {
+        continue; // unreadable row — leave it exactly as it is
+      }
+      if (typeof parsed?.image !== 'string' || !parsed.image.startsWith('data:')) continue;
+      parsed.image = storeImageBlob(row.restaurant_id, 'menu_item', row.id, parsed.image);
+      updateItem.run(JSON.stringify(parsed), row.restaurant_id, row.id);
+      movedItems += 1;
+    }
+  });
+  itemTx();
+
+  const logos = db
+    .prepare(`SELECT id, logo_url FROM restaurants WHERE logo_url LIKE 'data:%'`)
+    .all() as { id: string; logo_url: string }[];
+  const updateLogo = db.prepare('UPDATE restaurants SET logo_url = ? WHERE id = ?');
+  const logoTx = db.transaction(() => {
+    for (const row of logos) {
+      updateLogo.run(storeImageBlob(row.id, 'logo', '', row.logo_url), row.id);
+    }
+  });
+  logoTx();
+
+  if (movedItems || logos.length) {
+    console.log(`[db] Moved ${movedItems} dish photo(s) and ${logos.length} logo(s) out of inline base64 into image_blobs.`);
+  }
+}
+
 createBaseSchema();
 migrateLegacySingleTenantData();
 migrateAddBrandingAndNotifyColumns();
 migrateDedupeCouriers();
 migrateAddCourierLocationColumn();
 migrateSeedCategories();
+migrateExtractInlineImages();
 
 // ---------------------------------------------------------------------------
 // Restaurant / subscription helpers

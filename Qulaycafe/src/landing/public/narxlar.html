@@ -1,0 +1,144 @@
+<!doctype html>
+<!--
+  /narxlar — the pricing page.
+
+  Mirrors components/site/pricing.tsx and must keep mirroring it: the price is
+  agreed per restaurant, there are no tiers, and the modules are not gated.
+  Naming a monthly figure here would be inventing one (the design draft did
+  exactly that, with 290 000 / 590 000 so'm).
+
+  No Offer/price structured data for the same reason — schema.org Offer wants a
+  price, and marking up a number nobody charges is worse than no markup.
+-->
+<html lang="uz">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Narxlar — QulayCafe</title>
+    <meta
+      name="description"
+      content="QulayCafe narxi har bir restoran uchun alohida kelishiladi — stol soni va filiallar har xil. 14 kun bepul sinov, karta talab qilinmaydi, yashirin to'lovlar yo'q."
+    />
+    <meta name="theme-color" content="#FAF9F6" />
+    <link rel="canonical" href="https://qulaycafe.uz/narxlar" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://qulaycafe.uz/narxlar" />
+    <meta property="og:site_name" content="QulayCafe" />
+    <meta property="og:locale" content="uz_UZ" />
+    <meta property="og:title" content="Narxlar — QulayCafe" />
+    <meta
+      property="og:description"
+      content="14 kun bepul sinov. Narx restoraningizga qarab kelishiladi, bo'limlar tariflarga bo'linmagan."
+    />
+    <meta property="og:image" content="https://qulaycafe.uz/icon-512.png" />
+
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="icon" href="/icon-48.png" sizes="48x48" type="image/png" />
+    <link rel="icon" href="/icon-96.png" sizes="96x96" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-icon.png" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500&family=Manrope:wght@400..600&display=swap"
+    />
+    <link rel="stylesheet" href="/static-page.css" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          {"@type": "ListItem", "position": 1, "name": "Bosh sahifa", "item": "https://qulaycafe.uz/"},
+          {"@type": "ListItem", "position": 2, "name": "Narxlar", "item": "https://qulaycafe.uz/narxlar"}
+        ]
+      }
+    </script>
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="wrap">
+        <a class="brand" href="/">
+          <img src="/logo.svg" width="36" height="36" alt="" />
+          Qulay<span>Cafe</span>
+        </a>
+        <nav class="header-nav" aria-label="Asosiy menyu">
+          <a href="/haqida">Haqida</a>
+          <a href="/narxlar" aria-current="page">Narxlar</a>
+          <a href="/kirish">Kirish</a>
+          <a href="/aloqa">Aloqa</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <nav class="crumbs" aria-label="Qaydasiz"><a href="/">Bosh sahifa</a> / Narxlar</nav>
+
+      <span class="eyebrow">Narxlar</span>
+      <h1>Narx restoraningizga qarab kelishiladi</h1>
+      <p class="lede">
+        Tizimni har bir restoran uchun biz sozlaymiz — stol soni, filiallar va
+        kerakli bo'limlar har xil. Shuning uchun narxni suhbatda belgilaymiz,
+        yashirin to'lovlarsiz.
+      </p>
+
+      <div class="grid cols-2">
+        <div class="card">
+          <h3>Hamma narsa kiritilgan</h3>
+          <p>Bo'limlar tariflarga bo'linmagan — panel to'liq holda ochiladi.</p>
+          <ul class="checks">
+            <li>QR-menyu — uzbek, rus va ingliz tillarida</li>
+            <li>Oshxona ekrani</li>
+            <li>Stollar xaritasi va QR kodlar</li>
+            <li>Bron qilish</li>
+            <li>Dostavka va olib ketish</li>
+            <li>Ombor nazorati</li>
+            <li>Hisobotlar va Excel'ga eksport</li>
+            <li>Logotip va rang sozlamalari</li>
+          </ul>
+        </div>
+
+        <div class="card is-primary">
+          <span class="eyebrow">Sinov</span>
+          <p class="trial">14 kun</p>
+          <p>
+            bepul. Karta talab qilinmaydi, o'zi to'lovga o'tib ketmaydi.
+          </p>
+          <p>
+            Yozing yoki qo'ng'iroq qiling — menyuni ko'chirib, stollarga QR
+            kodlar chiqarib beramiz va sinov shu kuni boshlanadi.
+          </p>
+          <span class="spacer"></span>
+          <a class="btn btn-primary" href="https://t.me/Aslbek_fullstack" rel="noreferrer noopener">Telegram'da yozish</a>
+          <a class="btn btn-ghost" href="tel:+998943448228">+998 94 344 82 28</a>
+        </div>
+      </div>
+
+      <h2>Nima uchun bitta narx e'lon qilinmaydi</h2>
+      <p>
+        20 stolli kafe va uch filialli restoran uchun ish hajmi bir xil emas:
+        menyuni ko'chirish, QR kodlarni chiqarish, xodimlarni o'rgatish va
+        keyingi qo'llab-quvvatlash har xil bo'ladi. Narxni shu ishga qarab
+        aytamiz — sinov tugagandan keyin ham o'zgarmaydi.
+      </p>
+      <p>
+        Tizimda nima borligini <a href="/haqida">haqida sahifasida</a> ko'ring,
+        savollarni <a href="/aloqa">aloqa sahifasi</a> orqali yozing.
+      </p>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <p>&copy; 2026 QulayCafe</p>
+        <nav class="footer-nav" aria-label="Sahifalar">
+          <a href="/">Bosh sahifa</a>
+          <a href="/haqida">Haqida</a>
+          <a href="/kirish">Kirish</a>
+          <a href="/aloqa">Aloqa</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

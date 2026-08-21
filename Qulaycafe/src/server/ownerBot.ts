@@ -114,7 +114,19 @@ const HELP_TEXT = `<b>Qulaycafe boshqaruv boti</b>
 /reservations_off &lt;telefon&gt; — stol bronini o'chirish
 /loyalty_on &lt;telefon&gt; — bonus ballar (aksiya) tizimini yoqish
 /loyalty_off &lt;telefon&gt; — bonus ballar tizimini o'chirish (mavjud ballar saqlanadi)
-/help — shu yordam matni`;
+/help — shu yordam matni
+
+<b>Tariflar</b> (qulaycafe.uz/#narxlar)
+Tarif — bu alohida sozlama emas, quyidagi kalitlar majmuasi. Yangi restoran
+sukut bo'yicha dostavka va bron o'chirilgan, ball yoqilgan holda yaratiladi.
+
+Start (250 000 so'm/oy) — /reservations_off va /loyalty_off
+Biznes (450 000 so'm/oy) — /reservations_on va /loyalty_on
+Pro (750 000 so'm/oy) — Biznes'dagi ikkitasi + /delivery_on
+
+Stollar soni (10 / 30 / cheklanmagan) va filiallar kelishuv asosida — kod
+buni tekshirmaydi, qo'lda nazorat qilinadi. Qo'shimcha filial = /new bilan
+yangi restoran.`;
 
 export async function handleOwnerBotMessage(message: any) {
   const from = message?.from;

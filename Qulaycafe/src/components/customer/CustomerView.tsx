@@ -427,6 +427,7 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
                 alt={featuredItem.name}
                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                 referrerPolicy="no-referrer"
+                decoding="async"
               />
               <span className="absolute top-2 left-2 bg-orange-500 text-white text-[10px] font-black uppercase px-2 py-0.5 rounded-md shadow-xs">
                 ⭐ {t.chefChoice}
@@ -529,6 +530,10 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
                       alt={dish.name}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                       referrerPolicy="no-referrer"
+                      // Photos are their own requests now, so the dishes below the
+                      // fold cost nothing until they are scrolled to.
+                      loading="lazy"
+                      decoding="async"
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
 

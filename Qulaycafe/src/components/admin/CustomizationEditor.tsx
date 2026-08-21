@@ -29,14 +29,18 @@ const MAX_TITLE_LENGTH = 120;
 const MAX_OPTION_NAME_LENGTH = 120;
 const MAX_SELECT = 20;
 
-const slugify = (value: string, fallback: string): string => {
-  const base = value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-    .slice(0, 24);
-  return base || fallback;
-};
+// Group and option ids are React keys, so they must be decided once when the
+// row is created and never again. They used to be re-derived from whatever the
+// admin had typed so far, which changed the key on every keystroke — React then
+// threw the <input> away and built a new one, the browser dropped the caret,
+// and the field could only be filled a word at a time between clicks.
+//
+// Nothing reads these ids: the server only checks `z.string().max(64)`
+// (customizationGroupSchema), and the guest UI uses them purely as keys while
+// the cart stores group titles and option names.
+let idCounter = 0;
+const nextId = (idPrefix: string, kind: 'g' | 'o'): string =>
+  `${idPrefix}_${kind}${Date.now().toString(36)}${(idCounter++).toString(36)}`;
 
 export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({ value, onChange, lang, idPrefix }) => {
   const t = translations[lang];
@@ -51,14 +55,12 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({ value,
     onChange([
       ...groups,
       {
-        // ids only have to be unique within one dish — the option/group id is
-        // never referenced from anywhere else, the customer's cart stores
-        // titles and names.
-        id: `${idPrefix}_g${Date.now().toString(36)}`,
+        // ids only have to be unique within one dish.
+        id: nextId(idPrefix, 'g'),
         title: '',
         required: false,
         maxSelect: 1,
-        options: [{ id: `${idPrefix}_o${Date.now().toString(36)}`, name: '', price: 0 }]
+        options: [{ id: nextId(idPrefix, 'o'), name: '', price: 0 }]
       }
     ]);
   };
@@ -71,7 +73,7 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({ value,
     const group = groups[groupIndex];
     if (!group || group.options.length >= MAX_OPTIONS_PER_GROUP) return;
     updateGroup(groupIndex, {
-      options: [...group.options, { id: `${idPrefix}_o${Date.now().toString(36)}`, name: '', price: 0 }]
+      options: [...group.options, { id: nextId(idPrefix, 'o'), name: '', price: 0 }]
     });
   };
 
@@ -80,14 +82,7 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({ value,
     if (!group) return;
     updateGroup(groupIndex, {
       options: group.options.map((o, i) =>
-        i === optionIndex
-          ? {
-              ...o,
-              ...patch,
-              // Keep the id readable and stable-ish, but never empty.
-              id: patch.name !== undefined ? slugify(patch.name, o.id) : o.id
-            }
-          : o
+        i === optionIndex ? { ...o, ...patch } : o
       )
     });
   };
@@ -129,10 +124,7 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({ value,
               value={group.title}
               maxLength={MAX_TITLE_LENGTH}
               onChange={e =>
-                updateGroup(groupIndex, {
-                  title: e.target.value,
-                  id: slugify(e.target.value, group.id)
-                })
+                updateGroup(groupIndex, { title: e.target.value })
               }
               placeholder={t.customizationsGroupTitlePlaceholder}
               className="flex-1 bg-zinc-50 border border-zinc-200 rounded-lg p-2 text-zinc-900 font-bold focus:border-orange-500 focus:outline-none"
@@ -190,7 +182,7 @@ export const CustomizationEditor: React.FC<CustomizationEditorProps> = ({ value,
                   type="number"
                   step="500"
                   min={0}
-                  value={option.price}
+                  value={option.price === 0 ? '' : option.price}
                   onChange={e => {
                     const parsed = parseFloat(e.target.value);
                     updateOption(groupIndex, optionIndex, { price: Number.isFinite(parsed) && parsed > 0 ? parsed : 0 });

@@ -95,6 +95,10 @@ import {
   findOpenReservationBySlot,
   getReservationByPublicToken,
   attachTelegramChatToReservation,
+  storeImageBlob,
+  getImageBlob,
+  deleteImageBlob,
+  inlineImageBlob,
   DuplicateCategoryNameError
 } from './src/server/db';
 import {
@@ -526,6 +530,13 @@ async function startServer() {
   }
 
   // --- Rate limiting ---
+  // A stored photo is the one /api response that is safe to cache and must be
+  // cached: its URL carries the tenant AND the content hash, so it can never
+  // answer for the wrong restaurant and can never go stale — a replaced photo
+  // is a different URL. Everything else stays uncacheable.
+  const isImageRequest = (req: Request) =>
+    req.method === 'GET' && /^\/(menu\/[^/]+\/image|branding\/logo)$/.test(req.path);
+
   // Which restaurant an /api response describes is decided by a request
   // HEADER (X-Restaurant-Id), not by the URL, so a cache that keys on the URL
   // alone would happily hand restaurant B's browser restaurant A's menu. Vary
@@ -536,7 +547,11 @@ async function startServer() {
   // This also removed one half of "the menu only appears after refreshing 2-3
   // times": a 304/from-cache empty menu response for the wrong tenant used to
   // stick around until something happened to evict it.
-  app.use('/api/', (_req: Request, res: Response, next: NextFunction) => {
+  app.use('/api/', (req: Request, res: Response, next: NextFunction) => {
+    if (isImageRequest(req)) {
+      next(); // the route sets its own long-lived caching headers
+      return;
+    }
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Vary', 'X-Restaurant-Id, Origin');
@@ -545,7 +560,17 @@ async function startServer() {
 
   app.use(
     '/api/',
-    rateLimit({ windowMs: 60_000, limit: 300, standardHeaders: true, legacyHeaders: false })
+    rateLimit({
+      windowMs: 60_000,
+      limit: 300,
+      standardHeaders: true,
+      legacyHeaders: false,
+      // One menu page opens as many photo requests as it has dishes, and a
+      // family sharing one restaurant's Wi-Fi shares one IP: counting photos
+      // against a 300/minute budget would rate-limit ordinary browsing. They
+      // are served from the browser cache after the first view anyway.
+      skip: isImageRequest
+    })
   );
   const loginLimiter = rateLimit({
     windowMs: 60_000,
@@ -1671,7 +1696,18 @@ async function startServer() {
     (req: Request, res: Response) => {
       const restaurantId = req.restaurantId as string;
       const { logoUrl, brandColor, displayName, contactPhone, contactAddress, contactInstagram, workingHours } = req.body;
-      updateRestaurantBranding(restaurantId, { logoUrl: logoUrl === '' ? null : logoUrl, brandColor, displayName });
+      // The logo is on every page of every surface, so it gets the same
+      // treatment as a dish photo: bytes in image_blobs, a cacheable URL in the
+      // row. Inline base64 here meant /api/settings alone was ~400 KB, re-sent
+      // uncached on every single page load.
+      let storedLogo: string | null | undefined = logoUrl;
+      if (logoUrl === '') {
+        storedLogo = null;
+        deleteImageBlob(restaurantId, 'logo', '');
+      } else if (typeof logoUrl === 'string') {
+        storedLogo = storeImageBlob(restaurantId, 'logo', '', logoUrl);
+      }
+      updateRestaurantBranding(restaurantId, { logoUrl: storedLogo, brandColor, displayName });
 
       const contactFields: Record<string, string | undefined> = { contactPhone, contactAddress, contactInstagram, workingHours };
       for (const [key, value] of Object.entries(contactFields)) {
@@ -2122,6 +2158,36 @@ async function startServer() {
     res.json(readMenu(req.restaurantId as string));
   });
 
+  /**
+   * Serves one stored photo. The tenant travels in `?r=` because an <img> tag
+   * cannot send the X-Restaurant-Id header, and `?v=` is the content hash, which
+   * is what makes an immutable cache correct here: a replaced photo is served
+   * from a different URL, so a cached response can never be the wrong one.
+   */
+  function serveImageBlob(owner: 'menu_item' | 'logo') {
+    return (req: Request, res: Response) => {
+      const blob = getImageBlob(req.restaurantId as string, owner, owner === 'logo' ? '' : req.params.id);
+      if (!blob) {
+        res.status(404).json({ error: 'Rasm topilmadi.' });
+        return;
+      }
+      const etag = `"${blob.sha}"`;
+      res.setHeader('Content-Type', blob.mime);
+      res.setHeader('ETag', etag);
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      res.removeHeader('Pragma');
+      if (req.headers['if-none-match'] === etag) {
+        res.status(304).end();
+        return;
+      }
+      res.setHeader('Content-Length', String(blob.bytes.length));
+      res.end(blob.bytes);
+    };
+  }
+
+  app.get('/api/menu/:id/image', requirePublicRestaurant, serveImageBlob('menu_item'));
+  app.get('/api/branding/logo', requirePublicRestaurant, serveImageBlob('logo'));
+
   app.post(
     '/api/menu',
     requireRole('admin'),
@@ -2156,6 +2222,10 @@ async function startServer() {
         prepTimeMinutes: body.prepTimeMinutes,
         customizations: body.customizations
       };
+      // An uploaded photo arrives as base64 and is stored as bytes, so the row
+      // (and every /api/menu response built from it) carries a URL, not a 100 KB
+      // string. A pasted http(s) photo URL passes straight through.
+      newItem.image = storeImageBlob(restaurantId, 'menu_item', newItem.id, newItem.image);
       db.prepare('INSERT INTO menu_items (restaurant_id, id, data) VALUES (?, ?, ?)').run(
         restaurantId,
         newItem.id,
@@ -2195,6 +2265,9 @@ async function startServer() {
       // in sync whenever the Uzbek fields are edited.
       if (patch.nameUz !== undefined) updated.name = patch.nameUz;
       if (patch.descriptionUz !== undefined) updated.description = patch.descriptionUz;
+      // A newly uploaded photo (base64) becomes bytes + URL; an unchanged one
+      // arrives as the URL it already had and is left alone.
+      updated.image = storeImageBlob(restaurantId, 'menu_item', updated.id, updated.image);
 
       db.prepare('UPDATE menu_items SET data = ? WHERE restaurant_id = ? AND id = ?').run(
         JSON.stringify(updated),
@@ -2212,6 +2285,7 @@ async function startServer() {
     const restaurantId = req.restaurantId as string;
     const { id } = req.params;
     db.prepare('DELETE FROM menu_items WHERE restaurant_id = ? AND id = ?').run(restaurantId, id);
+    deleteImageBlob(restaurantId, 'menu_item', id); // don't leave the photo bytes behind
     broadcastTableAll(restaurantId, 'MENU_UPDATED', readMenu(restaurantId));
     broadcastStaff(restaurantId, 'MENU_UPDATED', readMenu(restaurantId));
     res.json({ success: true, id });
@@ -2242,7 +2316,13 @@ async function startServer() {
         sortOrder: c.sortOrder,
         isActive: c.isActive
       })),
-      items: readMenu(restaurantId)
+      // The export file has to survive being imported somewhere else, so photos
+      // go back inline as base64 here rather than as URLs only this deployment
+      // (and only this tenant) could resolve.
+      items: readMenu(restaurantId).map(item => ({
+        ...item,
+        image: inlineImageBlob(restaurantId, 'menu_item', item.id, item.image || '')
+      }))
     });
   });
 
@@ -2634,6 +2714,7 @@ async function startServer() {
 
       if (replaceExisting) {
         db.prepare('DELETE FROM menu_items WHERE restaurant_id = ?').run(restaurantId);
+        db.prepare(`DELETE FROM image_blobs WHERE restaurant_id = ? AND owner = 'menu_item'`).run(restaurantId);
         byId.clear();
         byName.clear();
       }
@@ -2703,6 +2784,9 @@ async function startServer() {
         };
 
         try {
+          // A backup file carries its photos inline as base64; keep them out of
+          // the row the same way the normal write paths do.
+          item.image = storeImageBlob(restaurantId, 'menu_item', item.id, item.image || '');
           if (existing) {
             updateStmt.run(JSON.stringify(item), restaurantId, item.id);
             updatedItems += 1;

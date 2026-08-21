@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Sitemap for qulaycafe.uz.
+
+  Only the five URLs the apex really serves are listed. The landing hostname
+  answers *every* unmatched path with the marketing page (see server.ts), so a
+  crawler that guesses paths can invent unlimited URLs that all return 200 —
+  the canonical tag on each document and this explicit list are what tell
+  Google which ones are real.
+
+  The app surfaces are deliberately absent: clients. pages need a restaurant
+  and table from a QR code, and admin./kitchen. are behind a login. There is
+  nothing there for a crawler to index.
+
+  lastmod is hand-maintained. Update it when the page's copy actually changes;
+  a date that moves on every deploy teaches Google to ignore the field.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://qulaycafe.uz/</loc>
+    <lastmod>2026-08-16</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://qulaycafe.uz/kirish</loc>
+    <lastmod>2026-08-16</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://qulaycafe.uz/haqida</loc>
+    <lastmod>2026-08-16</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://qulaycafe.uz/narxlar</loc>
+    <lastmod>2026-08-16</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://qulaycafe.uz/aloqa</loc>
+    <lastmod>2026-08-16</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+</urlset>

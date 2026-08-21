@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="uz" class="light">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- See the same marker in the app shell at the project root: it is how a
+         test tells the marketing document from the app document, now that both
+         are React roots. -->
+    <meta name="qulaycafe-surface" content="landing" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>QulayCafe — Restoraningizni boshqarish endi qulay</title>
+    <meta
+      name="description"
+      content="QulayCafe — restoran va kafelar uchun zamonaviy raqamli platforma. QR menyu, buyurtma, oshxona ekrani, stollar, dostavka va hisobotlarni bitta tizimda boshqaring."
+    />
+    <meta name="theme-color" content="#FAF9F6" />
+    <link rel="canonical" href="https://qulaycafe.uz/" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://qulaycafe.uz/" />
+    <meta property="og:site_name" content="QulayCafe" />
+    <meta property="og:locale" content="uz_UZ" />
+    <meta property="og:title" content="QulayCafe — Restoraningizni boshqarish endi qulay" />
+    <meta
+      property="og:description"
+      content="QR menyu, buyurtma, oshxona ekrani, stollar va hisobotlar — bitta tizimda."
+    />
+    <!-- Absolute URL: a share scraper has no page context to resolve a relative
+         one against. -->
+    <meta property="og:image" content="https://qulaycafe.uz/images/restaurant-interior.webp" />
+    <meta property="og:image:alt" content="QulayCafe bilan ishlayotgan restoran zali" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="https://qulaycafe.uz/images/restaurant-interior.webp" />
+
+    <!-- The favicon is what Google draws next to this site's search result, and
+         until now every one of these files was v0's logo, not QulayCafe's — the
+         design tool that generated this export left its own mark behind. They
+         are replaced by the real brand mark (public/logo.svg, the same cup glyph
+         components/site/logo.tsx draws in the header).
+
+         The 48/96 pair is Google's favicon guidance (a multiple of 48px); the
+         old pair was 32x32 and split by prefers-color-scheme, which a crawler
+         resolves to whichever scheme it happens to render in. -->
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="icon" href="/icon-48.png" sizes="48x48" type="image/png" />
+    <link rel="icon" href="/icon-96.png" sizes="96x96" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-icon.png" />
+
+    <!-- Structured data: who this site belongs to, in the form Google reads.
+         The title/description/OG tags above tell a crawler about *this page*;
+         this tells it about the *business* — which is what the logo and the
+         name in a search result are drawn from.
+
+         Two nodes, cross-referenced by @id so Google treats them as one entity
+         rather than two unrelated blobs: the sub-pages in public/*.html point
+         their `isPartOf`/`about` at these same ids.
+
+         Safe under the CSP in server.ts even though script-src is 'self' with no
+         'unsafe-inline': a script element whose type is not a JavaScript MIME
+         type is a data block, and the HTML spec stops processing it before the
+         inline-CSP check ever runs. It is never executed, so there is nothing to
+         allow-list.
+
+         Every field is checkable against the running system — no invented
+         founding date, address, employee count or rating. Google penalises
+         markup that disagrees with the page, and an aggregateRating nobody
+         measured is the classic way to earn a manual action. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "Organization",
+            "@id": "https://qulaycafe.uz/#organization",
+            "name": "QulayCafe",
+            "alternateName": "Qulaycafe",
+            "url": "https://qulaycafe.uz/",
+            "logo": {
+              "@type": "ImageObject",
+              "url": "https://qulaycafe.uz/icon-512.png",
+              "width": 512,
+              "height": 512,
+              "caption": "QulayCafe"
+            },
+            "image": "https://qulaycafe.uz/icon-512.png",
+            "slogan": "Restoraningizni boshqarish endi qulay",
+            "description": "Restoran va kafelar uchun raqamli platforma: QR-menyu, buyurtma, oshxona ekrani, stollar, dostavka va hisobotlar bitta tizimda.",
+            "areaServed": {
+              "@type": "Country",
+              "name": "Uzbekistan"
+            },
+            "sameAs": ["https://t.me/Aslbek_fullstack"],
+            "contactPoint": {
+              "@type": "ContactPoint",
+              "contactType": "sales",
+              "telephone": "+998943448228",
+              "availableLanguage": ["uz", "ru", "en"],
+              "url": "https://qulaycafe.uz/aloqa"
+            }
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://qulaycafe.uz/#website",
+            "url": "https://qulaycafe.uz/",
+            "name": "QulayCafe",
+            "inLanguage": "uz",
+            "description": "QulayCafe — restoran va kafelar uchun QR-menyu, oshxona ekrani, dostavka va hisobotlar.",
+            "publisher": {
+              "@id": "https://qulaycafe.uz/#organization"
+            }
+          }
+        ]
+      }
+    </script>
+
+    <!-- The two typefaces the design is built on. They come from Google Fonts
+         rather than next/font (which is what generated this page originally and
+         does not exist outside Next.js); server.ts already allow-lists
+         fonts.googleapis.com in the CSP for exactly this. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&family=Manrope:wght@400..800&display=swap"
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/main.tsx"></script>
+  </body>
+</html>
