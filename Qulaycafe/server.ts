@@ -155,6 +155,11 @@ const isProd = process.env.NODE_ENV === 'production';
 //  - Table-scoped stream (public but narrow): a customer only receives
 //    updates for their OWN table's order status and general menu/table
 //    availability — never other tables' orders or any loyalty-member data.
+//    Narrow in shape as well as in scope: orders go out through
+//    publicOrderView() below, because this channel is shared by every browser
+//    that has ever scanned that table's QR, including the next customer.
+//  - Order-scoped stream (public, one id): the full order, for the one guest
+//    who placed it and therefore knows its id.
 // The original build broadcast full orders + the entire loyalty member list
 // (names/phones/emails/points) to every connected browser tab, including
 // customers. That data exposure is fixed by this split.
@@ -211,6 +216,44 @@ function broadcastOrder(restaurantId: string, orderId: string, type: string, dat
         logger.error({ err: e }, 'SSE order send error');
       }
     });
+}
+
+// ---------------------------------------------------------------------------
+// What an order looks like to an anonymous guest.
+//
+// The table channel and the public table endpoint are shared by EVERY browser
+// that has ever scanned that table's QR code, so anything put on them is handed
+// to the next stranger who sits down. They used to carry the whole order row:
+// the previous customer's name, phone number, delivery address, note and full
+// bill arrived on the new guest's phone, and the UI filtering it out afterwards
+// does nothing about what is already in the network tab.
+//
+// So the public shape is only what a status display needs: which ticket, where
+// it is in the kitchen, and how long. A guest's own copy of their order — items,
+// totals, the name they typed — is the one they already have from the POST
+// response, kept on their own device (src/utils/guestOrders.ts); this projection
+// exists purely to move that copy's status along.
+//
+// Deliberately omitted: customerName, customerPhoneOrEmail, items, subtotal,
+// tax, serviceCharge, discount, totalAmount, paymentMethod, orderNote,
+// deliveryAddress, deliveryPhone, deliveryLat/Lng, loyalty point fields.
+// The staff stream (session-gated) and the per-order stream (scoped to one id
+// the guest already knows) still carry the full row.
+// ---------------------------------------------------------------------------
+export function publicOrderView(order: Order) {
+  return {
+    id: order.id,
+    tableNumber: order.tableNumber,
+    status: order.status,
+    paymentStatus: order.paymentStatus,
+    orderType: order.orderType,
+    estimatedMinutes: order.estimatedMinutes,
+    createdAt: order.createdAt,
+    updatedAt: order.updatedAt,
+    // The courier's first name is shown to the customer waiting for them by
+    // design; it is the courier's, not another customer's.
+    courierName: order.courierName
+  };
 }
 
 function broadcastTableAll(restaurantId: string, type: string, data: unknown) {
@@ -362,7 +405,18 @@ async function startServer() {
               // stylesheet is style-src (the font files themselves fall under
               // helmet's default font-src 'self' https: data:), so without this
               // the marketing site silently renders in fallback fonts.
-              styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+              // accounts.google.com/gsi/style is the stylesheet Google Sign-In's
+              // renderButton() injects. 'unsafe-inline' does NOT cover it (that
+              // only allows inline <style>), so without it listed the CSP blocks
+              // the sheet and the Google button renders unstyled/collapsed — the
+              // sign-in looks "broken" in production while working in dev, where
+              // the whole CSP is off.
+              styleSrc: [
+                "'self'",
+                "'unsafe-inline'",
+                'https://fonts.googleapis.com',
+                'https://accounts.google.com/gsi/style'
+              ],
               connectSrc: ["'self'", 'https://accounts.google.com'],
               frameSrc: ["'self'", 'https://accounts.google.com'],
               frameAncestors: ["'none'"]
@@ -2827,14 +2881,51 @@ async function startServer() {
     res.json(readOrders(req.restaurantId as string));
   });
 
-  // Customers can only fetch orders for their own table, not the whole list.
+  // ---------------------------------------------------------------------------
+  // What an anonymous guest at a table may read. This is deliberately NOT every
+  // order ever placed at table N: a table is reused all evening, so returning
+  // the full history handed each new person who scanned that QR the previous
+  // customer's dishes, name and phone number — a privacy leak, and the reason
+  // the menu used to open with a stranger's bill already on screen.
+  //
+  // A table session ends when the bill is settled, so `paid` and `cancelled`
+  // orders are never public. Staff forgetting to close a ticket must not extend
+  // the session forever either — cash handed over at the counter routinely never
+  // gets marked paid — so an unsettled order also drops out once it is older
+  // than one plausible visit.
+  //
+  // Nothing is deleted and staff still see every order (GET /api/orders above,
+  // and the admin dashboard); this only bounds what an unauthenticated scanner
+  // is served. The guest's own receipts are kept on the guest's own device
+  // instead — src/utils/guestOrders.ts, whose GUEST_SESSION_MS must match the
+  // window below.
+  // ---------------------------------------------------------------------------
+  const TABLE_SESSION_MS = 4 * 60 * 60 * 1000;
+
   app.get('/api/orders/table/:tableNumber', requirePublicRestaurant, (req: Request, res: Response) => {
     const tableNumber = Number(req.params.tableNumber);
     if (!Number.isFinite(tableNumber)) {
       res.status(400).json({ error: 'Invalid table number' });
       return;
     }
-    res.json(readOrders(req.restaurantId as string).filter(o => o.tableNumber === tableNumber));
+    const sessionStart = Date.now() - TABLE_SESSION_MS;
+    res.json(
+      readOrders(req.restaurantId as string)
+        .filter(o => {
+          if (o.tableNumber !== tableNumber) return false;
+          // Settled = that visit is over, whoever is holding the phone now.
+          if (o.status === 'paid' || o.status === 'cancelled') return false;
+          const created = new Date(o.createdAt).getTime();
+          // A missing/unparseable timestamp shouldn't hide a live ticket from the
+          // guest waiting on it; the server always writes createdAt, so this is
+          // only a guard against rows written by some older build.
+          return Number.isNaN(created) ? true : created >= sessionStart;
+        })
+        // Status only — see publicOrderView. The guest's own items/totals/name
+        // live on their own device; this endpoint exists so that copy can catch
+        // up on what the kitchen did while the page was closed.
+        .map(publicOrderView)
+    );
   });
 
   app.post(
@@ -2947,7 +3038,17 @@ async function startServer() {
         recomputedSubtotal + authoritativeTax + authoritativeServiceCharge - authoritativeDiscount
       );
 
-      const orderId = 'ORD-' + Date.now().toString(36).toUpperCase() + '-' + Math.floor(100 + Math.random() * 900);
+      // The suffix is crypto-random, not Math.random()x900. GET
+      // /api/events/order/:id is public by necessity (the guest has no session),
+      // so a guessable id is a subscription to somebody else's order: the
+      // timestamp half is knowable within a second, which left only 900
+      // possibilities to try. 5 base32 characters is ~1.7 million per
+      // millisecond, and the id stays short enough to read off a receipt.
+      const orderId =
+        'ORD-' +
+        Date.now().toString(36).toUpperCase() +
+        '-' +
+        Array.from(crypto.randomBytes(5), b => '0123456789ABCDEFGHJKMNPQRSTVWXYZ'[b & 31]).join('');
       // Loyalty economics, calibrated for so'm-scale totals: earn 1 point per
       // 1,000 so'm spent, each point worth 100 so'm when redeemed (~10% back).
       // Both halves are off when the program is disabled for this restaurant.
@@ -3052,7 +3153,7 @@ async function startServer() {
 
       req.log.info({ orderId, tableNumber, restaurantId }, 'order created');
       broadcastStaff(restaurantId, 'ORDER_CREATED', { order: newOrder });
-      broadcastTable(restaurantId, Number(tableNumber), 'ORDER_CREATED', { order: newOrder });
+      broadcastTable(restaurantId, Number(tableNumber), 'ORDER_CREATED', { order: publicOrderView(newOrder) });
       broadcastOrder(restaurantId, newOrder.id, 'ORDER_CREATED', { order: newOrder });
       broadcastTableAll(restaurantId, 'MENU_UPDATED', readMenu(restaurantId));
 
@@ -3133,7 +3234,7 @@ async function startServer() {
       }
 
       broadcastStaff(restaurantId, 'ORDER_UPDATED', { order });
-      broadcastTable(restaurantId, order.tableNumber, 'ORDER_UPDATED', { order });
+      broadcastTable(restaurantId, order.tableNumber, 'ORDER_UPDATED', { order: publicOrderView(order) });
       broadcastOrder(restaurantId, order.id, 'ORDER_UPDATED', { order });
       res.json(order);
     }

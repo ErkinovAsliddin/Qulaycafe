@@ -4,6 +4,10 @@ import { ChefHat, Clock, CheckCircle2, AlertCircle, Play, Bell, Check, Flame, Ut
 import { playOrderChimeSound } from '../../utils/audio';
 import { Language, translations } from '../../lib/translations';
 
+// Hour (local) at which the kitchen's day rolls over. 05:00 keeps a ticket
+// taken just before midnight on screen while it is still being cooked.
+const KITCHEN_DAY_START_HOUR = 5;
+
 interface KitchenDisplayProps {
   orders: Order[];
   onUpdateStatus: (orderId: string, newStatus: OrderStatus) => void;
@@ -92,14 +96,46 @@ export const KitchenDisplay: React.FC<KitchenDisplayProps> = ({
 
   // Play audio chime when a new 'pending' order arrives
   useEffect(() => {
-    const hasPending = orders.some(o => o.status === 'pending');
+    // Scoped to today's tickets: a ticket left 'pending' from an earlier day
+    // would otherwise re-arm the chime on every render for as long as it sat
+    // there. isFromToday is defined below — the effect body runs after the
+    // whole component body, so the closure is already initialised.
+    const hasPending = orders.some(o => o.status === 'pending' && isFromToday(o));
     if (hasPending && soundEnabled) {
       playOrderChimeSound();
     }
   }, [orders.length, soundEnabled]);
 
-  // Filter active orders
-  const activeOrders = orders.filter(o => o.status !== 'paid' && o.status !== 'cancelled');
+  // ---------------------------------------------------------------------------
+  // The kitchen board shows ONE business day. Yesterday's tickets that were
+  // never marked served/paid used to stay on the screen forever, mixed in with
+  // today's real work — the cook cannot tell which is which, and the oldest
+  // card (the most alarming elapsed time) is the one nobody needs.
+  //
+  // The cut is at 05:00 local, not midnight, on purpose: a ticket taken at
+  // 23:50 must still be on the screen at 00:10 while it is being cooked. So
+  // "today" runs 05:00 -> 05:00, which is what a kitchen actually means by a
+  // day. Nothing is deleted and nothing changes server-side — the admin
+  // dashboard still lists every order, this is only what the cook is shown.
+  // ---------------------------------------------------------------------------
+  const businessDayStart = (() => {
+    const start = new Date();
+    if (start.getHours() < KITCHEN_DAY_START_HOUR) start.setDate(start.getDate() - 1);
+    start.setHours(KITCHEN_DAY_START_HOUR, 0, 0, 0);
+    return start.getTime();
+  })();
+
+  const openOrders = orders.filter(o => o.status !== 'paid' && o.status !== 'cancelled');
+  const isFromToday = (o: Order) => {
+    const created = new Date(o.createdAt).getTime();
+    // An unparseable/missing timestamp must never hide a real ticket.
+    return Number.isNaN(created) ? true : created >= businessDayStart;
+  };
+  const activeOrders = openOrders.filter(isFromToday);
+  // Counted, not hidden silently: if something was left open from an earlier
+  // day the cook is told it exists and where to close it, so an order can never
+  // vanish without a trace.
+  const staleOrderCount = openOrders.length - activeOrders.length;
   const filteredOrders = activeOrders.filter(o => {
     if (filter === 'all') return true;
     return o.status === filter;
@@ -213,6 +249,19 @@ export const KitchenDisplay: React.FC<KitchenDisplayProps> = ({
           </button>
         )}
       </div>
+
+      {/* Left over from an earlier day. Shown rather than silently dropped, so
+          nobody can lose an order to the daily cut — but kept out of the board
+          itself, which is the whole point of the cut. */}
+      {staleOrderCount > 0 && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-2xl p-3.5 flex items-start gap-2.5">
+          <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
+          <p className="text-[11px] sm:text-xs font-medium leading-relaxed">
+            <span className="font-black">{staleOrderCount}</span> ta buyurtma oldingi kunlardan yopilmagan.
+            Ular bugungi ro'yxatda ko'rsatilmaydi — admin panelidagi buyurtmalar bo'limidan yoping.
+          </p>
+        </div>
+      )}
 
       {/* Waiter Call Banner — urgent, sits above everything else */}
       {pendingWaiterCalls.length > 0 && (

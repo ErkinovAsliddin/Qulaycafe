@@ -114,6 +114,9 @@ interface CartDrawerProps {
   }) => void | Promise<boolean | void>;
   lang: Language;
   orderMode?: 'dine_in' | 'delivery' | 'pickup';
+  /** Lets the guest switch between courier delivery and self-pickup from inside
+      the checkout, which is where that decision actually belongs. */
+  onSetOrderMode?: (mode: 'dine_in' | 'delivery' | 'pickup') => void;
   deliveryAddress?: string;
   setDeliveryAddress?: (val: string) => void;
   deliveryPhone?: string;
@@ -146,6 +149,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   onSubmitOrder,
   lang,
   orderMode = 'dine_in',
+  onSetOrderMode,
   deliveryAddress = '',
   setDeliveryAddress,
   deliveryPhone = '',
@@ -159,6 +163,9 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   const { formatPrice } = useCurrency();
   const isDelivery = orderMode === 'delivery';
   const isPickup = orderMode === 'pickup';
+  // Both mean "not eating at a table here", which is the one thing the header
+  // switcher decides; delivery vs pickup is settled in the step below.
+  const isTakeaway = isDelivery || isPickup;
 
   const [locationStatus, setLocationStatus] = useState<'idle' | 'loading' | 'error'>('idle');
   const [locationError, setLocationError] = useState<string | null>(null);
@@ -639,7 +646,53 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                     ))}
                   </ul>
                 </section>
-                {/* 2 — where it goes. Directly after the dishes now, instead of
+                {/* 2 — delivery or pickup. This is the "delivery section" the
+                    guest entered from the menu header, so the choice between a
+                    courier and collecting it themselves is made HERE, next to
+                    the fields it changes, instead of being a third button up in
+                    the menu header where it meant nothing yet. Switching flips
+                    the section below between an address form and a phone-only
+                    form; the cart, the totals and everything typed so far are
+                    untouched. */}
+                {isTakeaway && onSetOrderMode && (
+                  <section className="bg-zinc-800/90 border border-zinc-700/80 rounded-2xl p-4">
+                    <StepHeader
+                      step={nextStep()}
+                      title={t.cartStepFulfilment}
+                      icon={<ShoppingBag className="w-3.5 h-3.5 text-zinc-400" />}
+                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => onSetOrderMode('delivery')}
+                        aria-pressed={isDelivery}
+                        className={`rounded-xl px-3 py-3 text-xs font-bold border transition-colors ${
+                          isDelivery
+                            ? 'bg-sky-500 border-sky-400 text-white'
+                            : 'bg-zinc-900 border-zinc-700 text-zinc-300 hover:border-zinc-500'
+                        }`}
+                      >
+                        🛵 {t.fulfilmentDelivery}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onSetOrderMode('pickup')}
+                        aria-pressed={isPickup}
+                        className={`rounded-xl px-3 py-3 text-xs font-bold border transition-colors ${
+                          isPickup
+                            ? 'bg-amber-500 border-amber-400 text-white'
+                            : 'bg-zinc-900 border-zinc-700 text-zinc-300 hover:border-zinc-500'
+                        }`}
+                      >
+                        🥡 {t.fulfilmentPickup}
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-zinc-400 leading-relaxed mt-2.5">
+                      {isPickup ? t.fulfilmentPickupHint : t.fulfilmentDeliveryHint}
+                    </p>
+                  </section>
+                )}
+                {/* 3 — where it goes. Directly after the dishes now, instead of
                     below three sign-in cards. */}
                 {isDelivery && (
                   <section className="bg-sky-500/10 border border-sky-500/30 rounded-2xl p-4">
@@ -761,7 +814,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   </section>
                 )}
 
-                {/* 3 — the note. The state existed and was submitted with every
+                {/* 4 — the note. The state existed and was submitted with every
                     order, but there was no field to type it into. */}
                 <section className="bg-zinc-800/90 border border-zinc-700/80 rounded-2xl p-4">
                   <StepHeader
@@ -780,7 +833,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   />
                 </section>
 
-                {/* 4 — payment */}
+                {/* 5 — payment */}
                 <section className="bg-zinc-800/90 border border-zinc-700/80 rounded-2xl p-4">
                   <StepHeader
                     step={nextStep()}
@@ -835,7 +888,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                     </label>
                   )}
                 </section>
-                {/* 5 — who they are. Last of the input steps: it blocks the
+                {/* 6 — who they are. Last of the input steps: it blocks the
                     submit, so it sits where the eye lands before the button. */}
                 <section className="bg-zinc-800/90 border border-zinc-700/80 rounded-2xl p-4">
                   <StepHeader
@@ -987,7 +1040,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                     )}
                   </div>
                 </section>
-                {/* 6 — what it costs. The total is repeated on the button, but
+                {/* 7 — what it costs. The total is repeated on the button, but
                     the breakdown belongs here so nobody is surprised by a
                     service fee only after the order is already in the kitchen. */}
                 <section className="bg-zinc-800/90 border border-zinc-700/80 rounded-2xl p-4">

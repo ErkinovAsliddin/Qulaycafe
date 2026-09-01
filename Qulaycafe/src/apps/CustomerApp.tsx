@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { CartItem, GoogleUser, LoyaltyMember, MenuCategory, MenuItem, Order, Table } from '../types';
 import { Language } from '../lib/translations';
 import { HeaderNav } from '../components/HeaderNav';
@@ -24,6 +24,16 @@ import {
 } from '../utils/restaurantContext';
 import { initTelegramMiniApp, TelegramWebAppUser } from '../utils/telegramMiniApp';
 import { cartLineTotal } from '../utils/cart';
+import { describeApiError } from '../utils/apiErrors';
+import { cacheBranding, EMPTY_BRANDING, GuestBranding, loadCachedBranding } from '../utils/brandingCache';
+import {
+  applyStatusUpdates,
+  isCurrentTableSession,
+  loadGuestOrders,
+  PublicOrderView,
+  rememberGuestOrder,
+  syncGuestOrders
+} from '../utils/guestOrders';
 
 // ---------------------------------------------------------------------------
 // The guest surface (clients.qulaycafe.uz). Everything a person sitting at a
@@ -52,23 +62,18 @@ export default function CustomerApp() {
   // 'loading' until the menu request settles, so the guest sees a skeleton
   // rather than a bare "no dishes found" screen.
   const [menuState, setMenuState] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [branding, setBranding] = useState<{
-    logoUrl: string | null;
-    brandColor: string | null;
-    restaurantName: string | null;
-    contactPhone: string | null;
-    contactAddress: string | null;
-    contactInstagram: string | null;
-    workingHours: string | null;
-  }>({
-    logoUrl: null,
-    brandColor: null,
-    restaurantName: null,
-    contactPhone: null,
-    contactAddress: null,
-    contactInstagram: null,
-    workingHours: null
-  });
+  // Seeded from the device's last visit to THIS restaurant, so a returning guest
+  // gets the cafe's own name and logo in the first painted frame instead of the
+  // platform's fallback. See src/utils/brandingCache.ts.
+  const [branding, setBranding] = useState<GuestBranding>(
+    () => loadCachedBranding(getRestaurantId()) || EMPTY_BRANDING
+  );
+  // 'loading' until /api/settings settles, either way. The welcome splash uses
+  // this to avoid animating in a name it is about to replace — the whole reason
+  // guests saw "Qulaycafe" before the restaurant they had actually walked into.
+  const [brandingState, setBrandingState] = useState<'loading' | 'ready'>(() =>
+    loadCachedBranding(getRestaurantId()) ? 'ready' : 'loading'
+  );
 
   // --- Where/how this guest is ordering ---
   const [tableNumber, setTableNumber] = useState<number | null>(null);
@@ -87,8 +92,22 @@ export default function CustomerApp() {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
   const [selectedDishForCustomization, setSelectedDishForCustomization] = useState<MenuItem | null>(null);
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [activeCustomerOrder, setActiveCustomerOrder] = useState<Order | null>(null);
+  // ---------------------------------------------------------------------------
+  // The ONLY order list this surface has: the orders placed from THIS browser.
+  //
+  // There used to be a second one, built from "every order whose tableNumber
+  // matches", and that is the bug: a table is reused all evening, so the person
+  // who sat down next opened the menu with the previous customer's ticket in the
+  // status card and their meal, name and phone in "My orders". A table number
+  // identifies a piece of furniture, never a customer.
+  //
+  // A dine-in guest has no account and no session, so the one piece of identity
+  // that genuinely exists here is the browser they ordered from — which is what
+  // this keys on (src/utils/guestOrders.ts). The table endpoint and the table SSE
+  // channel are still used, but only to move THESE orders' status along; neither
+  // can add an order. A guest who has ordered nothing sees nothing.
+  // ---------------------------------------------------------------------------
+  const [myOrders, setMyOrders] = useState<Order[]>(() => loadGuestOrders(getRestaurantId()));
 
   // --- Identity (optional: Google or Telegram, used for loyalty + order
   //     verification). There is no guest account/password anywhere. ---
@@ -187,11 +206,15 @@ export default function CustomerApp() {
   // Branding + which optional features this restaurant has (delivery,
   // bookings, points). Also fired immediately, in parallel with the menu.
   useEffect(() => {
+    // A failsafe: the splash waits for this request before revealing the
+    // restaurant's name, and a guest must never be held behind a spinner by a
+    // dead network. After 3.5s we give up waiting and show what we have.
+    const giveUp = window.setTimeout(() => setBrandingState('ready'), 3500);
     fetch('/api/settings')
       .then(r => (r.ok ? r.json() : null))
       .then(data => {
         if (!data) return;
-        setBranding({
+        const resolved: GuestBranding = {
           logoUrl: data.logoUrl || null,
           brandColor: data.brandColor || null,
           restaurantName: data.restaurantName || null,
@@ -199,13 +222,22 @@ export default function CustomerApp() {
           contactAddress: data.contactAddress || null,
           contactInstagram: data.contactInstagram || null,
           workingHours: data.workingHours || null
-        });
+        };
+        setBranding(resolved);
+        cacheBranding(getRestaurantId(), resolved);
         if (data.deliveryStatus) setDeliveryStatus(data.deliveryStatus);
         if (data.reservationStatus) setReservationStatus(data.reservationStatus);
         if (data.loyaltyStatus) setLoyaltyStatus(data.loyaltyStatus);
         if (data.slug) setBookingSlug(prev => prev || data.slug);
       })
-      .catch(() => {});
+      .catch(() => {})
+      // Ready means "settled", not "succeeded": a failed request must release
+      // the splash just as a successful one does.
+      .finally(() => {
+        window.clearTimeout(giveUp);
+        setBrandingState('ready');
+      });
+    return () => window.clearTimeout(giveUp);
   }, []);
 
   // Table number from the QR link (?table=N). No table means this person came
@@ -226,15 +258,37 @@ export default function CustomerApp() {
     }
   }, []);
 
-  // This table's own open order. Kept out of fetchState so picking a table
-  // later (QR scan, table modal) actually loads its order right away.
+  // The one order worth putting a live status card on screen: this device's most
+  // recent unsettled one. Derived rather than stored — it used to be a second
+  // piece of state kept in sync by an effect, which is how it ended up holding a
+  // table-mate's (in practice, the previous customer's) ticket after a re-render.
+  //
+  // myOrders is newest-first, so find() picks the current visit's order. Takeaway
+  // orders have no table of their own (they all carry the tableNumber = 0
+  // sentinel), so the table filter only applies while dining in.
+  const activeCustomerOrder = useMemo<Order | null>(() => {
+    const live = myOrders.filter(isCurrentTableSession);
+    if (orderMode !== 'dine_in') {
+      return live.find(o => o.orderType === 'delivery' || o.orderType === 'pickup') || live[0] || null;
+    }
+    if (!tableNumber) return null;
+    return live.find(o => o.tableNumber === tableNumber) || null;
+  }, [myOrders, orderMode, tableNumber]);
+
+  // Catch this device's own orders up on whatever the kitchen did while the page
+  // was closed. The endpoint answers with status only (publicOrderView in
+  // server.ts) and applyStatusUpdates ignores every id this browser doesn't
+  // already know, so a stranger's ticket can't get in through here — a reload is
+  // exactly where the old code re-imported the previous customer's order.
   useEffect(() => {
     if (!tableNumber || orderMode !== 'dine_in') return;
     let cancelled = false;
     fetch(`/api/orders/table/${tableNumber}`)
       .then(r => (r.ok ? r.json() : null))
-      .then(myOrders => {
-        if (!cancelled && myOrders) setOrders(myOrders);
+      .then((updates: PublicOrderView[] | null) => {
+        if (cancelled || !Array.isArray(updates)) return;
+        const merged = applyStatusUpdates(getRestaurantId(), updates);
+        if (merged) setMyOrders(merged);
       })
       .catch(() => {});
     return () => {
@@ -248,7 +302,13 @@ export default function CustomerApp() {
   //    channel, so one guest's address/phone/items can never reach another.
   useEffect(() => {
     if (orderMode !== 'dine_in') {
-      if (!activeCustomerOrder?.id) return;
+      if (!activeCustomerOrder?.id) {
+        // Nothing to subscribe to yet (a takeaway guest who hasn't ordered).
+        // Without this reset, one earlier failed connection left the
+        // "reconnecting" banner pinned to the corner for the rest of the visit.
+        setIsRealtimeConnected(true);
+        return;
+      }
       const eventSource = new EventSource(withRestaurantParam(`/api/events/order/${activeCustomerOrder.id}`));
       eventSource.onopen = () => setIsRealtimeConnected(true);
       eventSource.onerror = () => setIsRealtimeConnected(false);
@@ -256,12 +316,11 @@ export default function CustomerApp() {
         try {
           const payload = JSON.parse(event.data);
           if ((payload.type === 'ORDER_CREATED' || payload.type === 'ORDER_UPDATED') && payload.data.order) {
-            setOrders(prev => {
-              const exists = prev.some(o => o.id === payload.data.order.id);
-              return exists
-                ? prev.map(o => (o.id === payload.data.order.id ? payload.data.order : o))
-                : [payload.data.order, ...prev];
-            });
+            // Scoped to one order id, which only the guest who placed it has, so
+            // this channel still carries the whole row — syncGuestOrders takes it
+            // as-is, and still refuses ids this device doesn't own.
+            const merged = syncGuestOrders(getRestaurantId(), [payload.data.order as Order]);
+            if (merged) setMyOrders(merged);
           }
         } catch (e) {
           console.error('Error parsing SSE event', e);
@@ -279,12 +338,15 @@ export default function CustomerApp() {
         const payload = JSON.parse(event.data);
         if (payload.type === 'ORDER_CREATED' || payload.type === 'ORDER_UPDATED') {
           if (payload.data.order) {
-            setOrders(prev => {
-              const exists = prev.some(o => o.id === payload.data.order.id);
-              return exists
-                ? prev.map(o => (o.id === payload.data.order.id ? payload.data.order : o))
-                : [payload.data.order, ...prev];
-            });
+            // Everyone who has ever scanned this table's QR is on this channel,
+            // so an update about the previous customer's ticket arrives here too.
+            // applyStatusUpdates advances the orders this browser placed and
+            // silently drops every other id — it cannot add an order. Without
+            // that, the previous customer's ticket moving through the kitchen
+            // showed up on the new guest's phone as "your order is being
+            // prepared".
+            const merged = applyStatusUpdates(getRestaurantId(), [payload.data.order as PublicOrderView]);
+            if (merged) setMyOrders(merged);
           }
         } else if (payload.type === 'MENU_UPDATED') {
           if (Array.isArray(payload.data)) setMenuItems(payload.data);
@@ -307,23 +369,6 @@ export default function CustomerApp() {
     };
     return () => eventSource.close();
   }, [tableNumber, orderMode, activeCustomerOrder?.id]);
-
-  // Keep the tracked order in step with whatever arrived over SSE.
-  useEffect(() => {
-    if (orderMode !== 'dine_in') {
-      setActiveCustomerOrder(prev => {
-        if (!prev) return prev;
-        return orders.find(o => o.id === prev.id) || prev;
-      });
-      return;
-    }
-    if (tableNumber) {
-      const tableOrder = orders.find(
-        o => o.tableNumber === tableNumber && o.status !== 'paid' && o.status !== 'cancelled'
-      );
-      setActiveCustomerOrder(tableOrder || null);
-    }
-  }, [tableNumber, orders, orderMode]);
 
   // The guest's own booking token. Kept per restaurant so a phone that booked
   // at two different places doesn't show one restaurant's booking under the
@@ -505,15 +550,22 @@ export default function CustomerApp() {
 
       if (res.ok) {
         const createdOrder: Order = await res.json();
-        setOrders(prev => [createdOrder, ...prev]);
-        setActiveCustomerOrder(createdOrder);
+        // The only moment anything can know an order is this guest's: they just
+        // placed it from this browser. This response is also the only full copy
+        // of it the guest surface ever sees — the shared table channel carries
+        // status only — so it is what gets stored, and the status card and "My
+        // orders" both read from there.
+        setMyOrders(rememberGuestOrder(getRestaurantId(), createdOrder));
         setCartItems([]);
         setDeliveryLat(null);
         setDeliveryLng(null);
         return true;
       }
       const body = await res.json().catch(() => ({ error: null }));
-      showError(body.error || "Buyurtma yuborilmadi. Qaytadan urinib ko'ring.");
+      // describeApiError unpacks the zod field errors behind the server's
+      // generic "Invalid request data", so a rejected order says WHICH field
+      // was refused instead of leaving the guest to guess and retry forever.
+      showError(describeApiError(body) || "Buyurtma yuborilmadi. Qaytadan urinib ko'ring.");
       // Returning false keeps the cart drawer open so the guest can retry
       // without rebuilding the whole order.
       return false;
@@ -670,6 +722,7 @@ export default function CustomerApp() {
           onSubmitOrder={handleSubmitOrder}
           lang={lang}
           orderMode={orderMode}
+          onSetOrderMode={setOrderMode}
           deliveryAddress={deliveryAddress}
           setDeliveryAddress={setDeliveryAddress}
           deliveryPhone={deliveryPhone}
@@ -689,9 +742,7 @@ export default function CustomerApp() {
           onClose={() => setIsLoyaltyModalOpen(false)}
           member={isLoyaltyEnabled ? currentLoyaltyMember : null}
           loyaltyEnabled={isLoyaltyEnabled}
-          orders={orders.filter(
-            o => o.tableNumber === tableNumber || o.customerPhoneOrEmail === customerPhoneOrEmail
-          )}
+          orders={myOrders}
           lang={lang}
         />
 
@@ -716,6 +767,7 @@ export default function CustomerApp() {
           lang={lang}
           onSelectLang={newLang => setLang(newLang)}
           branding={branding}
+          brandingReady={brandingState === 'ready'}
         />
 
         {/* Table booking. Two entry points, one component: the "Book a table"

@@ -194,11 +194,14 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
                 <span>Kitchen Ready</span>
               </span>
             )}
-            {/* Order-type switcher: at a table, the customer can still opt
-                into delivery or pickup instead (e.g. from home, not scanning
-                a table QR); once in delivery/pickup they can jump straight
-                back to dine-in too. Only shown when this restaurant has
-                opted into the delivery/pickup flow at all. */}
+            {/* Order-type switcher — TWO choices, not three: "am I sitting at a
+                table, or am I taking it away?". Delivery and pickup are the same
+                decision from the guest's side (no table, give us a phone number),
+                and splitting them here put a third cramped button in the menu
+                header before the guest had any reason to care. Which of the two
+                it is gets chosen inside the cart, next to the fields it changes
+                (see CartDrawer's fulfilment step), so this row stays readable on
+                a phone. Only shown when the restaurant offers takeaway at all. */}
             {deliveryEnabled && onSetOrderMode && (
               <div className="flex items-center rounded-lg border border-zinc-200 bg-zinc-50 p-0.5 text-[10px] sm:text-xs font-bold">
                 <button
@@ -209,21 +212,20 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
                 >
                   🍽 Stolda
                 </button>
+                {/* Entering takeaway defaults to delivery; if the guest already
+                    picked pickup in the cart, coming back here must not silently
+                    reset that choice. */}
                 <button
-                  onClick={() => onSetOrderMode('delivery')}
+                  onClick={() => onSetOrderMode(orderMode === 'pickup' ? 'pickup' : 'delivery')}
                   className={`px-2 py-0.5 rounded-md transition-colors ${
-                    orderMode === 'delivery' ? 'bg-sky-500 text-white shadow-xs' : 'text-zinc-500 hover:text-zinc-800'
+                    orderMode === 'delivery'
+                      ? 'bg-sky-500 text-white shadow-xs'
+                      : orderMode === 'pickup'
+                      ? 'bg-amber-500 text-white shadow-xs'
+                      : 'text-zinc-500 hover:text-zinc-800'
                   }`}
                 >
-                  🛵 Dostavka
-                </button>
-                <button
-                  onClick={() => onSetOrderMode('pickup')}
-                  className={`px-2 py-0.5 rounded-md transition-colors ${
-                    orderMode === 'pickup' ? 'bg-amber-500 text-white shadow-xs' : 'text-zinc-500 hover:text-zinc-800'
-                  }`}
-                >
-                  🥡 Olib ketish
+                  {orderMode === 'pickup' ? '🥡 Olib ketish' : '🛵 Dostavka'}
                 </button>
               </div>
             )}

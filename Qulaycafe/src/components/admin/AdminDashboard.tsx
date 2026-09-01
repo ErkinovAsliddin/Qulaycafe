@@ -47,6 +47,109 @@ import { getTableFullUrl, getShareableOrderUrl, getShareableBookingUrl } from '.
 import { Language, translations } from '../../lib/translations';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
+// ---------------------------------------------------------------------------
+// Order-row pieces shared by the orders registry's two layouts.
+//
+// The registry is a nine-column table, which a phone cannot show: it collapsed
+// into a horizontal-scroll strip where the action buttons — the only reason to
+// open the tab — sat off the right edge. Below `md` it is rendered as cards
+// instead, and these components are what keep the two layouts from drifting
+// apart. Declared at module level so they aren't rebuilt on every render of the
+// dashboard around them.
+// ---------------------------------------------------------------------------
+const OrderStatusChip: React.FC<{ status: string }> = ({ status }) => (
+  <span className="bg-orange-50 text-orange-800 border border-orange-200 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase">
+    {status}
+  </span>
+);
+
+const OrderPaymentMethodChip: React.FC<{ method?: string }> = ({ method }) => (
+  <span
+    className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase ${
+      method === 'card' ? 'bg-sky-50 text-sky-800 border border-sky-200' : 'bg-zinc-50 text-zinc-700 border border-zinc-200'
+    }`}
+  >
+    {method === 'card' ? '💳 Karta' : method === 'loyalty_points' ? '⭐ Ball' : '💵 Naqd'}
+  </span>
+);
+
+const OrderPaymentStatusChip: React.FC<{ paymentStatus: string }> = ({ paymentStatus }) => (
+  <span
+    className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase ${
+      paymentStatus === 'paid'
+        ? 'bg-green-50 text-green-800 border border-green-200'
+        : 'bg-rose-50 text-rose-800 border border-rose-200'
+    }`}
+  >
+    {paymentStatus}
+  </span>
+);
+
+/** Where the order is going: a table, a courier or the counter. */
+const orderDestinationLabel = (order: Order) =>
+  order.orderType === 'delivery'
+    ? '🛵 Dostavka'
+    : order.orderType === 'pickup'
+      ? '🥡 Olib ketish'
+      : `Table #${order.tableNumber}`;
+
+interface OrderRowActionsProps {
+  order: Order;
+  onPrintLocal: (order: Order) => void;
+  onMarkPaid: (order: Order) => void;
+  onDelete: (order: Order) => void;
+  /** True on the phone layout, where a row of tiny buttons is unusable: they
+      become a two-column grid of full-width tap targets instead. */
+  stacked?: boolean;
+}
+
+const OrderRowActions: React.FC<OrderRowActionsProps> = ({
+  order,
+  onPrintLocal,
+  onMarkPaid,
+  onDelete,
+  stacked = false
+}) => {
+  // 44px-ish targets on touch, the compact original inside the desktop table.
+  const base = stacked
+    ? 'text-xs font-bold px-3 py-2.5 rounded-xl border'
+    : 'text-[10px] font-bold px-2.5 py-1 rounded-lg border';
+  return (
+    <div className={stacked ? 'grid grid-cols-2 gap-2' : 'inline-flex flex-wrap justify-end gap-1'}>
+      <button
+        onClick={() => onPrintLocal(order)}
+        className={`${base} bg-zinc-100 hover:bg-zinc-200 text-zinc-700 border-zinc-200`}
+      >
+        🧾 Chek
+      </button>
+      <button
+        onClick={async () => {
+          const res = await fetch(`/api/admin/print-receipt/${order.id}`, { method: 'POST' });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) alert(data.error || "Printerga chop etib bo'lmadi.");
+        }}
+        className={`${base} bg-zinc-100 hover:bg-zinc-200 text-zinc-700 border-zinc-200`}
+      >
+        🖨️ Termal
+      </button>
+      {order.paymentStatus !== 'paid' && (
+        <button
+          onClick={() => onMarkPaid(order)}
+          className={`${base} bg-green-600 hover:bg-green-700 text-white border-green-600 shadow-sm`}
+        >
+          Mark Paid
+        </button>
+      )}
+      <button
+        onClick={() => onDelete(order)}
+        className={`${base} bg-zinc-100 hover:bg-red-50 hover:text-red-700 text-zinc-500 border-zinc-200 hover:border-red-200`}
+      >
+        Delete
+      </button>
+    </div>
+  );
+};
+
 interface AdminDashboardProps {
   menuItems: MenuItem[];
   /** Admin-managed menu sections, inactive ones included. */
@@ -1664,115 +1767,125 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* ORDERS LIST TAB */}
       {activeTab === 'orders' && (
-        <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm space-y-5">
-          <div className="flex items-center justify-between flex-wrap gap-3">
-            <h2 className="text-xl font-bold text-zinc-900">Live Customer Orders Registry</h2>
+        <div className="bg-white border border-zinc-200 rounded-2xl p-4 sm:p-6 shadow-sm space-y-5">
+          {/* Stacks on a phone: side by side, the heading squeezed the cleanup
+              button into a two-line sliver. */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="text-lg sm:text-xl font-bold text-zinc-900">{t.ordersList}</h2>
+              <p className="text-xs text-zinc-500 mt-0.5 font-medium">{orders.length} ta buyurtma</p>
+            </div>
             <button
               onClick={async () => {
                 if (!window.confirm('Delete all orders older than 30 days? This cannot be undone.')) return;
                 const count = await onCleanupOldOrders(30);
                 if (count !== null) window.alert(`Deleted ${count} old order(s).`);
               }}
-              className="bg-zinc-100 hover:bg-red-50 hover:text-red-700 text-zinc-600 text-xs font-bold px-3 py-2 rounded-xl border border-zinc-200 hover:border-red-200 transition-colors"
+              className="shrink-0 bg-zinc-100 hover:bg-red-50 hover:text-red-700 text-zinc-600 text-xs font-bold px-3 py-2.5 rounded-xl border border-zinc-200 hover:border-red-200 transition-colors"
             >
-              🧹 Clean up orders older than 30 days
+              🧹 30 kundan oshgan buyurtmalarni tozalash
             </button>
           </div>
 
-          <div className="overflow-x-auto custom-scrollbar">
-            <table className="w-full text-left text-xs text-zinc-700">
-              <thead className="bg-zinc-100 text-zinc-500 uppercase tracking-wider text-[10px]">
-                <tr>
-                  <th className="p-3">Order ID</th>
-                  <th className="p-3">Table</th>
-                  <th className="p-3">Customer</th>
-                  <th className="p-3">Items Summary</th>
-                  <th className="p-3">Total Pay</th>
-                  <th className="p-3">Order Status</th>
-                  <th className="p-3">How</th>
-                  <th className="p-3">Payment</th>
-                  <th className="p-3 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-100">
+          {orders.length === 0 ? (
+            <p className="text-xs text-zinc-400 text-center py-10 font-medium">Hozircha buyurtma yo'q.</p>
+          ) : (
+            <>
+              {/* PHONE LAYOUT — one card per order. Everything the table showed,
+                  in reading order, with nothing off-screen to the right. */}
+              <div className="md:hidden space-y-3">
                 {orders.map(ord => (
-                  <tr key={ord.id} className="hover:bg-zinc-50 transition-colors">
-                    <td className="p-3 font-bold text-orange-600">#{ord.id}</td>
-                    <td className="p-3 font-extrabold text-zinc-900">
-                      {ord.orderType === 'delivery'
-                        ? '🛵 Dostavka'
-                        : ord.orderType === 'pickup'
-                        ? '🥡 Olib ketish'
-                        : `Table #${ord.tableNumber}`}
-                    </td>
-                    <td className="p-3 font-medium">{ord.customerName}</td>
-                    <td className="p-3 max-w-xs truncate text-zinc-500">
+                  <div key={ord.id} className="border border-zinc-200 rounded-2xl p-3.5 space-y-3 bg-white">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="font-bold text-xs text-orange-600 truncate">#{ord.id}</p>
+                        <p className="font-extrabold text-sm text-zinc-900 mt-0.5">{orderDestinationLabel(ord)}</p>
+                        {!!ord.customerName && (
+                          <p className="text-[11px] text-zinc-500 font-medium truncate">{ord.customerName}</p>
+                        )}
+                      </div>
+                      <span className="font-black text-sm text-zinc-900 shrink-0">{formatSom(ord.totalAmount)}</span>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1.5">
+                      <OrderStatusChip status={ord.status} />
+                      <OrderPaymentMethodChip method={ord.paymentMethod} />
+                      <OrderPaymentStatusChip paymentStatus={ord.paymentStatus} />
+                    </div>
+
+                    {/* line-clamp rather than truncate: on a narrow screen one
+                        clipped line of a five-dish order says nothing useful. */}
+                    <p className="text-[11px] text-zinc-500 font-medium line-clamp-2">
                       {ord.items.map(i => `${i.quantity}x ${i.menuItem.name}`).join(', ')}
-                    </td>
-                    <td className="p-3 font-bold text-zinc-900">{formatSom(ord.totalAmount)}</td>
-                    <td className="p-3">
-                      <span className="bg-orange-50 text-orange-800 border border-orange-200 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase">
-                        {ord.status}
-                      </span>
-                    </td>
-                    <td className="p-3">
-                      <span className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase ${
-                        ord.paymentMethod === 'card' ? 'bg-sky-50 text-sky-800 border border-sky-200' : 'bg-zinc-50 text-zinc-700 border border-zinc-200'
-                      }`}>
-                        {ord.paymentMethod === 'card' ? '💳 Karta' : ord.paymentMethod === 'loyalty_points' ? '⭐ Ball' : '💵 Naqd'}
-                      </span>
-                    </td>
-                    <td className="p-3">
-                      <span className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase ${
-                        ord.paymentStatus === 'paid' ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-rose-50 text-rose-800 border border-rose-200'
-                      }`}>
-                        {ord.paymentStatus}
-                      </span>
-                    </td>
-                    <td className="p-3 text-right space-x-1 whitespace-nowrap">
-                      <button
-                        onClick={() => printReceipt(ord)}
-                        className="bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-[10px] font-bold px-2.5 py-1 rounded-lg border border-zinc-200"
-                      >
-                        🧾 Chek
-                      </button>
-                      <button
-                        onClick={async () => {
-                          const res = await fetch(`/api/admin/print-receipt/${ord.id}`, { method: 'POST' });
-                          const data = await res.json().catch(() => ({}));
-                          if (!res.ok) alert(data.error || "Printerga chop etib bo'lmadi.");
-                        }}
-                        className="bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-[10px] font-bold px-2.5 py-1 rounded-lg border border-zinc-200"
-                      >
-                        🖨️ Termal
-                      </button>
-                      {ord.paymentStatus !== 'paid' && (
-                        <button
-                          onClick={() => onUpdateOrderStatus(ord.id, ord.status, 'paid')}
-                          className="bg-green-600 hover:bg-green-700 text-white text-[10px] font-bold px-2.5 py-1 rounded-lg shadow-sm"
-                        >
-                          Mark Paid
-                        </button>
-                      )}
-                      <button
-                        onClick={() => {
-                          if (window.confirm(`Delete order #${ord.id}? This cannot be undone.`)) {
-                            onDeleteOrder(ord.id);
-                          }
-                        }}
-                        className="bg-zinc-100 hover:bg-red-50 hover:text-red-700 text-zinc-500 text-[10px] font-bold px-2.5 py-1 rounded-lg border border-zinc-200 hover:border-red-200"
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
+                    </p>
+
+                    <OrderRowActions
+                      order={ord}
+                      stacked
+                      onPrintLocal={printReceipt}
+                      onMarkPaid={o => onUpdateOrderStatus(o.id, o.status, 'paid')}
+                      onDelete={o => {
+                        if (window.confirm(`Delete order #${o.id}? This cannot be undone.`)) onDeleteOrder(o.id);
+                      }}
+                    />
+                  </div>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </div>
+
+              {/* DESKTOP LAYOUT — the full registry table. */}
+              <div className="hidden md:block overflow-x-auto custom-scrollbar">
+                <table className="w-full text-left text-xs text-zinc-700">
+                  <thead className="bg-zinc-100 text-zinc-500 uppercase tracking-wider text-[10px]">
+                    <tr>
+                      <th className="p-3">Order ID</th>
+                      <th className="p-3">Table</th>
+                      <th className="p-3">Customer</th>
+                      <th className="p-3">Items Summary</th>
+                      <th className="p-3">Total Pay</th>
+                      <th className="p-3">Order Status</th>
+                      <th className="p-3">How</th>
+                      <th className="p-3">Payment</th>
+                      <th className="p-3 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-100">
+                    {orders.map(ord => (
+                      <tr key={ord.id} className="hover:bg-zinc-50 transition-colors">
+                        <td className="p-3 font-bold text-orange-600">#{ord.id}</td>
+                        <td className="p-3 font-extrabold text-zinc-900">{orderDestinationLabel(ord)}</td>
+                        <td className="p-3 font-medium">{ord.customerName}</td>
+                        <td className="p-3 max-w-xs truncate text-zinc-500">
+                          {ord.items.map(i => `${i.quantity}x ${i.menuItem.name}`).join(', ')}
+                        </td>
+                        <td className="p-3 font-bold text-zinc-900">{formatSom(ord.totalAmount)}</td>
+                        <td className="p-3">
+                          <OrderStatusChip status={ord.status} />
+                        </td>
+                        <td className="p-3">
+                          <OrderPaymentMethodChip method={ord.paymentMethod} />
+                        </td>
+                        <td className="p-3">
+                          <OrderPaymentStatusChip paymentStatus={ord.paymentStatus} />
+                        </td>
+                        <td className="p-3 text-right whitespace-nowrap">
+                          <OrderRowActions
+                            order={ord}
+                            onPrintLocal={printReceipt}
+                            onMarkPaid={o => onUpdateOrderStatus(o.id, o.status, 'paid')}
+                            onDelete={o => {
+                              if (window.confirm(`Delete order #${o.id}? This cannot be undone.`)) onDeleteOrder(o.id);
+                            }}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </div>
       )}
-
       {/* QR GENERATOR TAB */}
       {activeTab === 'qr' && (
         <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm space-y-6">

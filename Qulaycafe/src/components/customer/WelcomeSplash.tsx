@@ -9,6 +9,9 @@ interface WelcomeSplashProps {
   lang: Language;
   onSelectLang: (lang: Language) => void;
   branding?: { restaurantName: string | null; contactAddress: string | null; logoUrl: string | null };
+  /** False while /api/settings is still in flight AND the device has no cached
+      copy of this restaurant's branding. See the comment on `identityReady`. */
+  brandingReady?: boolean;
 }
 
 export const WelcomeSplash: React.FC<WelcomeSplashProps> = ({
@@ -16,14 +19,60 @@ export const WelcomeSplash: React.FC<WelcomeSplashProps> = ({
   onClose,
   lang,
   onSelectLang,
-  branding
+  branding,
+  brandingReady = true
 }) => {
   const [progress, setProgress] = useState(0);
+  const logoUrl = branding?.logoUrl || null;
+  // Decoded before it is shown. An <img> that appears mid-animation makes the
+  // logo pop in after the name, which reads as a second, uglier transition —
+  // exactly the flicker this screen is supposed to be free of.
+  const [logoLoaded, setLogoLoaded] = useState(false);
+
+  useEffect(() => {
+    setLogoLoaded(false);
+    if (!logoUrl) return;
+    let cancelled = false;
+    const img = new Image();
+    // A logo that 404s or is slow must not hold the door shut; the branded
+    // monogram below stands in for it.
+    const release = () => {
+      if (!cancelled) setLogoLoaded(true);
+    };
+    img.onload = release;
+    img.onerror = release;
+    img.src = logoUrl;
+    const giveUp = window.setTimeout(release, 2500);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(giveUp);
+    };
+  }, [logoUrl]);
+
+  // ---------------------------------------------------------------------------
+  // This screen is a restaurant's front door, so it must not open on somebody
+  // else's sign. Until /api/settings has answered (or the device's cached copy
+  // has supplied the answer already), the restaurant's name is not yet known —
+  // and the fallback that used to fill the gap was the word "Qulaycafe" plus a
+  // generic cutlery icon, animated in and then swapped for the cafe's real name
+  // and photo. The guest scanned a cafe's QR code and was shown the platform.
+  //
+  // So the animated identity block is held back until there is something true to
+  // animate, with a skeleton of the same size in its place. The wait is normally
+  // invisible: a returning guest has the cached branding before the first frame,
+  // and CustomerApp gives up waiting after 3.5s regardless.
+  // ---------------------------------------------------------------------------
+  const identityReady = brandingReady && (!logoUrl || logoLoaded);
+  const restaurantInitial = (branding?.restaurantName || '').trim().charAt(0).toUpperCase();
 
   useEffect(() => {
     if (!isOpen) return;
+    // The auto-dismiss clock only starts once the restaurant's own name is on
+    // screen. Started earlier, a slow connection could dismiss the splash before
+    // the branding ever arrived — the guest would see the placeholder and then
+    // the menu, and never the restaurant.
+    if (!identityReady) return;
 
-    // Auto progress timer for auto-dismiss
     const interval = setInterval(() => {
       setProgress((prev) => {
         if (prev >= 100) {
@@ -36,7 +85,7 @@ export const WelcomeSplash: React.FC<WelcomeSplashProps> = ({
     }, 60);
 
     return () => clearInterval(interval);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, identityReady]);
 
   if (!isOpen) return null;
 
@@ -71,51 +120,76 @@ export const WelcomeSplash: React.FC<WelcomeSplashProps> = ({
             <span>Digital Dining Experience</span>
           </motion.div>
 
-          {/* Glowing Animated Logo Container */}
-          <div className="relative mx-auto w-20 h-20 flex items-center justify-center">
-            <motion.div
-              animate={{
-                scale: [1, 1.15, 1],
-                opacity: [0.3, 0.6, 0.3],
-              }}
-              transition={{ repeat: Infinity, duration: 2.5, ease: 'easeInOut' }}
-              className="absolute inset-0 rounded-3xl bg-gradient-to-tr from-orange-500 to-amber-500 blur-md opacity-40"
-            />
-            <motion.div
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className="relative w-20 h-20 rounded-3xl bg-gradient-to-tr from-orange-500 to-amber-600 text-white flex items-center justify-center shadow-xl shadow-orange-500/30 border border-orange-400/40 overflow-hidden"
-            >
-              {branding?.logoUrl ? (
-                <img src={branding.logoUrl} alt="Logo" className="w-full h-full object-cover" />
-              ) : (
-                <Utensils className="w-9 h-9 stroke-[2.2]" />
-              )}
-            </motion.div>
-          </div>
+          {/* The restaurant's own logo and name, or a same-sized skeleton while
+              they are still unknown. Same footprint either way, so nothing on
+              this card moves when the real identity lands. */}
+          {!identityReady ? (
+            <div aria-busy="true" aria-label="…" className="space-y-6">
+              <div className="mx-auto w-20 h-20 rounded-3xl bg-zinc-800/80 border border-zinc-700/60 animate-pulse" />
+              <div className="space-y-1.5 flex flex-col items-center">
+                <div className="h-7 w-44 rounded-lg bg-zinc-800/80 animate-pulse" />
+                <div className="h-3.5 w-32 rounded-md bg-zinc-800/60 animate-pulse" />
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Glowing Animated Logo Container */}
+              <div className="relative mx-auto w-20 h-20 flex items-center justify-center">
+                <motion.div
+                  animate={{
+                    scale: [1, 1.15, 1],
+                    opacity: [0.3, 0.6, 0.3],
+                  }}
+                  transition={{ repeat: Infinity, duration: 2.5, ease: 'easeInOut' }}
+                  className="absolute inset-0 rounded-3xl bg-gradient-to-tr from-orange-500 to-amber-500 blur-md opacity-40"
+                />
+                <motion.div
+                  initial={{ scale: 0.85, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ type: 'spring', damping: 20, stiffness: 220 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="relative w-20 h-20 rounded-3xl bg-gradient-to-tr from-orange-500 to-amber-600 text-white flex items-center justify-center shadow-xl shadow-orange-500/30 border border-orange-400/40 overflow-hidden"
+                >
+                  {logoUrl ? (
+                    <img src={logoUrl} alt={branding?.restaurantName || ''} className="w-full h-full object-cover" />
+                  ) : restaurantInitial ? (
+                    // The restaurant's own initial, not the platform's cutlery
+                    // icon: a cafe that never uploaded a logo still gets a mark
+                    // that is theirs.
+                    <span className="text-3xl font-black">{restaurantInitial}</span>
+                  ) : (
+                    <Utensils className="w-9 h-9 stroke-[2.2]" />
+                  )}
+                </motion.div>
+              </div>
 
-          {/* Title & Location */}
-          <div className="space-y-1.5">
-            <motion.h1
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-              className="text-2xl font-black tracking-tight text-white uppercase"
-            >
-              {branding?.restaurantName || 'Qulaycafe'}
-            </motion.h1>
-            {branding?.contactAddress && (
-              <motion.p
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.3 }}
-                className="text-xs text-orange-400 font-bold flex items-center justify-center space-x-1"
-              >
-                <MapPin className="w-3.5 h-3.5" />
-                <span>{branding.contactAddress}</span>
-              </motion.p>
-            )}
-          </div>
+              {/* Title & Location */}
+              <div className="space-y-1.5">
+                <motion.h1
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.05 }}
+                  className="text-2xl font-black tracking-tight text-white uppercase"
+                >
+                  {/* 'Qulaycafe' only as a last resort: /api/settings has already
+                      answered by now, so reaching this means the restaurant has
+                      genuinely set no name. */}
+                  {branding?.restaurantName || 'Qulaycafe'}
+                </motion.h1>
+                {branding?.contactAddress && (
+                  <motion.p
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: 0.15 }}
+                    className="text-xs text-orange-400 font-bold flex items-center justify-center space-x-1"
+                  >
+                    <MapPin className="w-3.5 h-3.5" />
+                    <span>{branding.contactAddress}</span>
+                  </motion.p>
+                )}
+              </div>
+            </>
+          )}
 
           {/* Quick Language Selector */}
           <motion.div

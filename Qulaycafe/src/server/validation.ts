@@ -113,25 +113,36 @@ const selectedCustomizationSchema = z.object({
   price: z.number().finite().min(0).max(100000)
 });
 
+// Money here is Uzbek so'm, where a single dish routinely costs 100_000+ and a
+// line of ten of them is an ordinary family order — not an attack. The caps are
+// derived from the limits that already exist rather than guessed, so a valid
+// cart can never be rejected as "Invalid request data":
+//   line total  <= quantity cap (50) x the menu-item price cap (1_000_000)
+const MAX_LINE_TOTAL_SOM = 50 * 1_000_000;
 const cartItemSchema = z.object({
   cartItemId: z.string().max(100),
   menuItem: z.object({ id: z.string().max(64) }).passthrough(),
   quantity: z.number().int().min(1).max(50),
   selectedCustomizations: z.array(selectedCustomizationSchema).max(30).default([]),
   specialInstructions: z.string().trim().max(500).optional(),
-  itemTotal: z.number().finite().min(0).max(1_000_000)
+  itemTotal: z.number().finite().min(0).max(MAX_LINE_TOTAL_SOM)
 });
+
+// One order's money fields. Bounded so garbage can't reach the database, but far
+// above any real bill (1 milliard so'm is ~80_000 USD) — a banquet must go
+// through, and the totals are recomputed server-side anyway.
+const MAX_ORDER_TOTAL_SOM = 1_000_000_000;
 
 export const orderCreateSchema = z.object({
   tableNumber: z.number().int().min(0).max(9999), // 0 is used as the "no physical table" sentinel for delivery orders
   customerName: z.string().trim().max(120).optional(),
   customerPhoneOrEmail: z.string().trim().max(200).optional(),
   items: z.array(cartItemSchema).min(1).max(100),
-  subtotal: z.number().finite().min(0).max(10_000_000),
-  tax: z.number().finite().min(0).max(10_000_000),
-  serviceCharge: z.number().finite().min(0).max(10_000_000),
-  discount: z.number().finite().min(0).max(10_000_000).optional().default(0),
-  totalAmount: z.number().finite().min(0).max(10_000_000),
+  subtotal: z.number().finite().min(0).max(MAX_ORDER_TOTAL_SOM),
+  tax: z.number().finite().min(0).max(MAX_ORDER_TOTAL_SOM),
+  serviceCharge: z.number().finite().min(0).max(MAX_ORDER_TOTAL_SOM),
+  discount: z.number().finite().min(0).max(MAX_ORDER_TOTAL_SOM).optional().default(0),
+  totalAmount: z.number().finite().min(0).max(MAX_ORDER_TOTAL_SOM),
   loyaltyPointsRedeemed: z.number().int().min(0).max(10_000_000).optional().default(0),
   paymentMethod: z.enum(['cash', 'card', 'loyalty_points', 'pay_at_counter']).optional().default('cash'),
   orderNote: z.string().trim().max(500).optional(),

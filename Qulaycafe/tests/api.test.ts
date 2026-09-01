@@ -1382,3 +1382,90 @@ describe('loyalty program toggle', () => {
     expect((await lookup.json()).pointsBalance).toBe(balanceWhileOff);
   });
 });
+
+describe('table order visibility (a new guest gets a fresh table)', () => {
+  // The bug this covers: /api/orders/table/N used to return every order ever
+  // placed at that table, so the customer who sat down next opened the menu with
+  // the previous customer's meal — and their name and phone number — already
+  // loaded. Settling the bill has to end that visit as far as the public
+  // endpoint is concerned.
+  //
+  // Each case uses its own table number: an unsettled order is *supposed* to
+  // stay visible, so two cases sharing a table would see each other's.
+  async function placeOrder(tableNumber: number, phone: string) {
+    const menu = await fetch(`${BASE_URL}/api/menu`).then(r => r.json());
+    const item = menu[0];
+    const res = await fetch(`${BASE_URL}/api/orders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tableNumber,
+        customerName: 'First Guest',
+        customerPhoneOrEmail: phone,
+        items: [
+          {
+            cartItemId: 'seat-1',
+            menuItem: { id: item.id },
+            quantity: 1,
+            selectedCustomizations: [],
+            itemTotal: item.price
+          }
+        ],
+        subtotal: item.price,
+        tax: 0,
+        serviceCharge: 0,
+        totalAmount: item.price
+      })
+    });
+    expect(res.status).toBe(201);
+    return res.json();
+  }
+
+  const tableOrders = (tableNumber: number) =>
+    fetch(`${BASE_URL}/api/orders/table/${tableNumber}`).then(r => r.json());
+
+  const setStatus = (orderId: string, body: Record<string, string>) =>
+    fetch(`${BASE_URL}/api/orders/${orderId}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify(body)
+    });
+
+  it('shows the table its own unsettled order', async () => {
+    const order = await placeOrder(55, '+998901110055');
+    expect((await tableOrders(55)).map((o: any) => o.id)).toContain(order.id);
+  });
+
+  it('stops serving the order once the bill is settled, and leaks nothing about that guest', async () => {
+    const phone = '+998901110056';
+    const order = await placeOrder(56, phone);
+    expect((await setStatus(order.id, { status: 'paid', paymentStatus: 'paid' })).status).toBe(200);
+
+    const visible = await tableOrders(56);
+    expect(visible.map((o: any) => o.id)).not.toContain(order.id);
+    // Not merely hidden by id — none of that customer's details come back.
+    expect(JSON.stringify(visible)).not.toContain(phone);
+    expect(visible).toHaveLength(0);
+  });
+
+  it("leaves a cancelled order out of the next guest's view too", async () => {
+    const order = await placeOrder(57, '+998901110057');
+    expect((await setStatus(order.id, { status: 'cancelled' })).status).toBe(200);
+    expect(await tableOrders(57)).toHaveLength(0);
+  });
+
+  it('keeps serving an order that is merely served but not yet paid', async () => {
+    // The guest is still at the table eating; only payment ends the session.
+    const order = await placeOrder(58, '+998901110058');
+    expect((await setStatus(order.id, { status: 'served' })).status).toBe(200);
+    expect((await tableOrders(58)).map((o: any) => o.id)).toContain(order.id);
+  });
+
+  it('still lists settled orders for staff, so nothing is actually lost', async () => {
+    const order = await placeOrder(59, '+998901110059');
+    await setStatus(order.id, { status: 'paid', paymentStatus: 'paid' });
+
+    const all = await fetch(`${BASE_URL}/api/orders`, { headers: { Cookie: adminCookie } }).then(r => r.json());
+    expect(all.map((o: any) => o.id)).toContain(order.id);
+  });
+});
