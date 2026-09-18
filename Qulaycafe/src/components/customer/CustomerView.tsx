@@ -1,7 +1,7 @@
 import { useCurrency } from '../../utils/CurrencyContext';
 import React, { useState } from 'react';
-import { MenuItem, MenuCategory, Category, DietaryTag, Order } from '../../types';
-import { Search, Clock, Filter, Utensils, ShoppingBag, Plus, Check, SlidersHorizontal, ChefHat, Sparkles, QrCode, ArrowRight, Bell, BellRing, Globe, Coins, CalendarDays } from 'lucide-react';
+import { MenuItem, MenuCategory, Category, Order } from '../../types';
+import { Search, Clock, Utensils, ShoppingBag, Plus, Check, SlidersHorizontal, ChefHat, Sparkles, QrCode, ArrowRight, Bell, BellRing, Globe, Coins, CalendarDays } from 'lucide-react';
 import { Language, translations, getLocalizedMenuItem } from '../../lib/translations';
 
 interface CustomerViewProps {
@@ -73,7 +73,6 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
   const t = translations[lang];
   const { currency, setCurrency, formatPrice } = useCurrency();
   const [selectedCategory, setSelectedCategory] = useState<Category | 'all'>('all');
-  const [selectedDietary, setSelectedDietary] = useState<DietaryTag | 'all'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [waiterCallState, setWaiterCallState] = useState<'idle' | 'sending' | 'sent'>('idle');
   const accentColor = brandColor || '#f97316'; // falls back to the default orange-500 look
@@ -113,25 +112,14 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
     ? selectedCategory
     : 'all';
 
-  const dietaryFilters: { id: DietaryTag | 'all'; label: string }[] = [
-    { id: 'all', label: t.filterAll },
-    { id: 'vegetarian', label: `${t.veg} 🥬` },
-    { id: 'vegan', label: `${t.vegan} 🌱` },
-    { id: 'gluten-free', label: `${t.glutenFree} 🌾` },
-    { id: 'halal', label: `${t.halal} 🌙` },
-    { id: 'spicy', label: `${t.spicy} 🔥` },
-    { id: 'chef-recommendation', label: `${t.chefChoice} ⭐` }
-  ];
-
   // Filtered menu logic
   const filteredItems = menuItems.filter(rawItem => {
     const item = getLocalizedMenuItem(rawItem, lang);
     const matchesCategory = effectiveCategory === 'all' || item.category === effectiveCategory;
-    const matchesDietary = selectedDietary === 'all' || item.dietary.includes(selectedDietary as DietaryTag);
     const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                           item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
                           rawItem.name.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesCategory && matchesDietary && matchesSearch;
+    return matchesCategory && matchesSearch;
   });
 
   // Featured Hero Item (first chef recommendation or special)
@@ -169,7 +157,7 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
           search row with the QR scan button. Language and currency used to sit
           in two separate places (and currency had an otherwise-empty row to
           itself); they are one strip now, which is what freed that row. */}
-      <div className="bg-white border border-zinc-200/90 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3">
+      <div className="bg-white dark:bg-zinc-900 border border-zinc-200/90 dark:border-zinc-700/80 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center space-x-2 flex-wrap gap-y-1.5">
             {orderMode === 'delivery' ? (
@@ -203,11 +191,11 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
                 (see CartDrawer's fulfilment step), so this row stays readable on
                 a phone. Only shown when the restaurant offers takeaway at all. */}
             {deliveryEnabled && onSetOrderMode && (
-              <div className="flex items-center rounded-lg border border-zinc-200 bg-zinc-50 p-0.5 text-[10px] sm:text-xs font-bold">
+              <div className="flex items-center rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 p-0.5 text-[10px] sm:text-xs font-bold">
                 <button
                   onClick={() => onSetOrderMode('dine_in')}
                   className={`px-2 py-0.5 rounded-md transition-colors ${
-                    orderMode === 'dine_in' ? 'bg-white text-zinc-900 shadow-xs' : 'text-zinc-500 hover:text-zinc-800'
+                    orderMode === 'dine_in' ? 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-xs' : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200'
                   }`}
                 >
                   🍽 Stolda
@@ -222,7 +210,7 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
                       ? 'bg-sky-500 text-white shadow-xs'
                       : orderMode === 'pickup'
                       ? 'bg-amber-500 text-white shadow-xs'
-                      : 'text-zinc-500 hover:text-zinc-800'
+                      : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200'
                   }`}
                 >
                   {orderMode === 'pickup' ? '🥡 Olib ketish' : '🛵 Dostavka'}
@@ -236,8 +224,8 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
               instead of sitting in two places with a whole row to themselves.
               so'm stays first because it is the amount actually charged;
               USD/RUB are convenience conversions. */}
-          <div className="flex items-center rounded-xl border border-zinc-200 bg-zinc-50 p-1 gap-1 shrink-0">
-            <Globe className="w-3.5 h-3.5 text-zinc-400 shrink-0 ml-0.5" aria-hidden="true" />
+          <div className="flex items-center rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 p-1 gap-1 shrink-0">
+            <Globe className="w-3.5 h-3.5 text-zinc-400 dark:text-zinc-500 shrink-0 ml-0.5" aria-hidden="true" />
             {(['uz', 'ru', 'en'] as const).map(code => (
               <button
                 key={code}
@@ -247,17 +235,17 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
                 aria-label={code === 'uz' ? "O'zbekcha" : code === 'ru' ? 'Русский' : 'English'}
                 className={`text-[10px] font-bold px-2 py-1 rounded-lg transition-colors ${
                   lang === code
-                    ? 'bg-zinc-900 text-white shadow-xs'
-                    : 'text-zinc-500 hover:text-zinc-900 hover:bg-white'
+                    ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 shadow-xs'
+                    : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-white dark:hover:bg-zinc-700'
                 }`}
               >
                 {code === 'uz' ? "O'z" : code === 'ru' ? 'Рус' : 'Eng'}
               </button>
             ))}
 
-            <span className="w-px self-stretch bg-zinc-200 mx-0.5" aria-hidden="true" />
+            <span className="w-px self-stretch bg-zinc-200 dark:bg-zinc-700 mx-0.5" aria-hidden="true" />
 
-            <Coins className="w-3.5 h-3.5 text-zinc-400 shrink-0" aria-hidden="true" />
+            <Coins className="w-3.5 h-3.5 text-zinc-400 dark:text-zinc-500 shrink-0" aria-hidden="true" />
             {(['UZS', 'USD', 'RUB'] as const).map(code => (
               <button
                 key={code}
@@ -269,7 +257,7 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
                 className={`text-[10px] font-bold px-2 py-1 rounded-lg transition-colors ${
                   currency === code
                     ? 'bg-orange-500 text-white shadow-xs'
-                    : 'text-zinc-500 hover:text-zinc-900 hover:bg-white'
+                    : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-white dark:hover:bg-zinc-700'
                 }`}
               >
                 {code === 'UZS' ? "so'm" : code === 'USD' ? '$' : '₽'}
@@ -279,7 +267,7 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
         </div>
 
         {tableComment && (
-          <p className="text-[11px] text-orange-700 bg-orange-50 border border-orange-200 rounded-lg px-2 py-1 inline-flex items-center gap-1">
+          <p className="text-[11px] text-orange-700 dark:text-orange-300 bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 rounded-lg px-2 py-1 inline-flex items-center gap-1">
             📍 {tableComment}
           </p>
         )}
@@ -289,18 +277,18 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
             the card no longer needs a third row for the currency toggle. */}
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
-            <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 text-zinc-400 dark:text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               placeholder={t.searchPlaceholder}
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              className="w-full bg-zinc-50 border border-zinc-200 rounded-xl pl-9 pr-3 py-2.5 text-xs text-zinc-900 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 shadow-xs transition-colors"
+              className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl pl-9 pr-3 py-2.5 text-xs text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 shadow-xs transition-colors"
             />
           </div>
           <button
             onClick={onOpenQRScanner}
-            className="bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 text-orange-500 font-extrabold text-[11px] px-3 py-2.5 rounded-xl flex items-center justify-center gap-1.5 shadow-xs transition-colors shrink-0"
+            className="bg-zinc-50 dark:bg-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-700 border border-zinc-200 dark:border-zinc-700 text-orange-500 dark:text-orange-400 font-extrabold text-[11px] px-3 py-2.5 rounded-xl flex items-center justify-center gap-1.5 shadow-xs transition-colors shrink-0"
             title={t.scanQR}
             aria-label={t.scanQR}
           >
@@ -314,7 +302,7 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
             <button
               onClick={onOpenReservation}
               style={{ color: accentColor }}
-              className="bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 font-extrabold text-[11px] px-3 py-2.5 rounded-xl flex items-center justify-center gap-1.5 shadow-xs transition-colors shrink-0"
+              className="bg-zinc-50 dark:bg-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-700 border border-zinc-200 dark:border-zinc-700 font-extrabold text-[11px] px-3 py-2.5 rounded-xl flex items-center justify-center gap-1.5 shadow-xs transition-colors shrink-0"
               title={t.bookTable}
               aria-label={t.bookTable}
             >
@@ -363,7 +351,7 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
       )}
 
       {/* 2. CATEGORY TABS & DIETARY CHIPS BENTO BAR */}
-      <div className="bg-white border border-zinc-200/90 rounded-2xl p-3 shadow-xs space-y-2.5">
+      <div className="bg-white dark:bg-zinc-900 border border-zinc-200/90 dark:border-zinc-700/80 rounded-2xl p-3 shadow-xs space-y-2.5">
         
         {/* Category Tabs — hidden entirely while the restaurant has no
             sections yet (or they are still loading), since a lone "All" tab
@@ -378,7 +366,7 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
                 className={`flex items-center space-x-1.5 px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all border shrink-0 ${
                   effectiveCategory === cat.id
                     ? 'bg-orange-500 text-white border-orange-500 shadow-xs'
-                    : 'bg-zinc-50 text-zinc-700 border-zinc-200 hover:bg-zinc-100 active:scale-95'
+                    : 'bg-zinc-50 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-700/60 active:scale-95'
                 }`}
               >
                 <span className="text-sm shrink-0">{cat.icon}</span>
@@ -389,30 +377,6 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
         </div>
         )}
 
-        {/* Dietary Tag Filter Chips. The divider only makes sense when there
-            are category tabs above it. */}
-        <div
-          className={`flex items-center space-x-1.5 overflow-x-auto custom-scrollbar touch-pan-x overscroll-x-contain ${
-            categoryTabs.length > 1 ? 'pt-2 border-t border-zinc-100' : ''
-          }`}
-        >
-          <span className="text-zinc-400 text-[11px] flex items-center space-x-1 shrink-0 font-semibold pl-1 pr-0.5">
-            <Filter className="w-3 h-3 shrink-0" />
-          </span>
-          {dietaryFilters.map(d => (
-            <button
-              key={d.id}
-              onClick={() => setSelectedDietary(d.id)}
-              className={`px-3 py-1 rounded-full text-[11px] font-bold transition-colors whitespace-nowrap border shrink-0 ${
-                selectedDietary === d.id
-                  ? 'bg-orange-50 text-orange-800 border-orange-200'
-                  : 'bg-zinc-50 text-zinc-600 border-zinc-200 hover:text-zinc-900 active:scale-95'
-              }`}
-            >
-              {d.label}
-            </button>
-          ))}
-        </div>
 
       </div>
 
@@ -420,10 +384,10 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
       {featuredItem && effectiveCategory === 'all' && !searchQuery && (
         <div
           onClick={() => onSelectItem(featuredItem)}
-          className="bg-white border border-zinc-200/90 rounded-2xl p-3.5 sm:p-5 shadow-xs hover:border-orange-400 transition-all cursor-pointer group relative overflow-hidden"
+          className="bg-white dark:bg-zinc-900 border border-zinc-200/90 dark:border-zinc-700/80 rounded-2xl p-3.5 sm:p-5 shadow-xs hover:border-orange-400 dark:hover:border-orange-500 transition-all cursor-pointer group relative overflow-hidden"
         >
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
-            <div className="w-full h-40 sm:h-48 md:h-full bg-zinc-100 rounded-xl overflow-hidden relative">
+            <div className="w-full h-40 sm:h-48 md:h-full bg-zinc-100 dark:bg-zinc-800 rounded-xl overflow-hidden relative">
               <img
                 src={featuredItem.image}
                 alt={featuredItem.name}
@@ -431,28 +395,25 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
                 referrerPolicy="no-referrer"
                 decoding="async"
               />
-              <span className="absolute top-2 left-2 bg-orange-500 text-white text-[10px] font-black uppercase px-2 py-0.5 rounded-md shadow-xs">
-                ⭐ {t.chefChoice}
-              </span>
             </div>
 
             <div className="md:col-span-2 space-y-2 flex flex-col justify-between">
               <div>
                 <div className="flex items-center justify-between">
-                  <h3 className="text-base sm:text-lg font-black text-zinc-900 group-hover:text-orange-600 transition-colors">
+                  <h3 className="text-base sm:text-lg font-black text-zinc-900 dark:text-zinc-100 group-hover:text-orange-600 dark:group-hover:text-orange-400 transition-colors">
                     {featuredItem.name}
                   </h3>
-                  <span className="text-base sm:text-xl font-black text-orange-600">
+                  <span className="text-base sm:text-xl font-black text-orange-600 dark:text-orange-400">
                     {formatPrice(featuredItem.price)}
                   </span>
                 </div>
-                <p className="text-xs text-zinc-500 mt-1 line-clamp-2 leading-relaxed font-medium">
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 line-clamp-2 leading-relaxed font-medium">
                   {featuredItem.description}
                 </p>
               </div>
 
-              <div className="pt-2 flex items-center justify-between border-t border-zinc-100">
-                <div className="flex items-center space-x-1 text-xs text-zinc-400 font-semibold">
+              <div className="pt-2 flex items-center justify-between border-t border-zinc-100 dark:border-zinc-800">
+                <div className="flex items-center space-x-1 text-xs text-zinc-400 dark:text-zinc-500 font-semibold">
                   <Clock className="w-3.5 h-3.5 text-orange-500" />
                   <span>{t.prepTime.replace('{mins}', String(featuredItem.prepTimeMinutes))}</span>
                 </div>
@@ -477,21 +438,21 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
         // and guests were reloading the page thinking it was broken.
         <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-4 md:gap-5">
           {Array.from({ length: 8 }).map((_, idx) => (
-            <div key={idx} className="bg-white border border-zinc-200/90 rounded-2xl p-2.5 sm:p-3.5 animate-pulse">
-              <div className="w-full h-28 sm:h-36 bg-zinc-200 rounded-xl mb-2" />
-              <div className="h-3 bg-zinc-200 rounded w-3/4 mb-1.5" />
-              <div className="h-2.5 bg-zinc-100 rounded w-1/2" />
-              <div className="mt-2.5 pt-2 border-t border-zinc-100">
-                <div className="h-8 bg-zinc-100 rounded-xl" />
+            <div key={idx} className="bg-white dark:bg-zinc-900 border border-zinc-200/90 dark:border-zinc-700/80 rounded-2xl p-2.5 sm:p-3.5 animate-pulse">
+              <div className="w-full h-28 sm:h-36 bg-zinc-200 dark:bg-zinc-800 rounded-xl mb-2" />
+              <div className="h-3 bg-zinc-200 dark:bg-zinc-800 rounded w-3/4 mb-1.5" />
+              <div className="h-2.5 bg-zinc-100 dark:bg-zinc-800/60 rounded w-1/2" />
+              <div className="mt-2.5 pt-2 border-t border-zinc-100 dark:border-zinc-800">
+                <div className="h-8 bg-zinc-100 dark:bg-zinc-800/60 rounded-xl" />
               </div>
             </div>
           ))}
         </div>
       ) : menuState === 'error' && menuItems.length === 0 ? (
-        <div className="text-center py-16 bg-white rounded-2xl border border-zinc-200/90 my-4 shadow-xs space-y-3">
-          <Utensils className="w-10 h-10 text-zinc-400 mx-auto" />
-          <p className="text-zinc-800 font-bold text-xs sm:text-sm">Menyuni yuklab bo'lmadi</p>
-          <p className="text-[11px] text-zinc-500">Internet aloqasini tekshirib, qaytadan urinib ko'ring.</p>
+        <div className="text-center py-16 bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200/90 dark:border-zinc-700/80 my-4 shadow-xs space-y-3">
+          <Utensils className="w-10 h-10 text-zinc-400 dark:text-zinc-600 mx-auto" />
+          <p className="text-zinc-800 dark:text-zinc-200 font-bold text-xs sm:text-sm">Menyuni yuklab bo'lmadi</p>
+          <p className="text-[11px] text-zinc-500 dark:text-zinc-400">Internet aloqasini tekshirib, qaytadan urinib ko'ring.</p>
           {onRetryMenu && (
             <button
               onClick={onRetryMenu}
@@ -503,10 +464,10 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
           )}
         </div>
       ) : filteredItems.length === 0 ? (
-        <div className="text-center py-16 bg-white rounded-2xl border border-zinc-200/90 my-4 shadow-xs">
-          <Utensils className="w-10 h-10 text-zinc-400 mx-auto mb-2" />
-          <p className="text-zinc-800 font-bold text-xs sm:text-sm">{t.noDishesFound}</p>
-          <p className="text-[11px] text-zinc-500 mt-1">{t.tryResetFilters}</p>
+        <div className="text-center py-16 bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200/90 dark:border-zinc-700/80 my-4 shadow-xs">
+          <Utensils className="w-10 h-10 text-zinc-400 dark:text-zinc-600 mx-auto mb-2" />
+          <p className="text-zinc-800 dark:text-zinc-200 font-bold text-xs sm:text-sm">{t.noDishesFound}</p>
+          <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1">{t.tryResetFilters}</p>
         </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-4 md:gap-5">
@@ -518,7 +479,7 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
               <div
                 key={dish.id}
                 onClick={() => dish.isAvailable && onSelectItem(rawDish)}
-                className={`group bg-white border border-zinc-200/90 hover:border-orange-400 rounded-2xl p-2.5 sm:p-3.5 shadow-xs transition-all duration-200 flex flex-col justify-between ${
+                className={`group bg-white dark:bg-zinc-900 border border-zinc-200/90 dark:border-zinc-700/80 hover:border-orange-400 dark:hover:border-orange-500 rounded-2xl p-2.5 sm:p-3.5 shadow-xs transition-all duration-200 flex flex-col justify-between ${
                   !dish.isAvailable
                     ? 'opacity-60 cursor-not-allowed'
                     : 'cursor-pointer hover:shadow-md'
@@ -526,7 +487,7 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
               >
                 <div>
                   {/* Food Image Container */}
-                  <div className="w-full h-28 sm:h-36 bg-zinc-100 rounded-xl overflow-hidden relative mb-2">
+                  <div className="w-full h-28 sm:h-36 bg-zinc-100 dark:bg-zinc-800 rounded-xl overflow-hidden relative mb-2">
                     <img
                       src={dish.image}
                       alt={dish.name}
@@ -576,17 +537,17 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
 
                   {/* Card Content */}
                   <div>
-                    <h4 className="font-extrabold text-xs sm:text-sm text-zinc-900 group-hover:text-orange-600 transition-colors line-clamp-1 leading-snug">
+                    <h4 className="font-extrabold text-xs sm:text-sm text-zinc-900 dark:text-zinc-100 group-hover:text-orange-600 dark:group-hover:text-orange-400 transition-colors line-clamp-1 leading-snug">
                       {dish.name}
                     </h4>
-                    <p className="text-[10px] sm:text-xs text-zinc-500 mt-0.5 line-clamp-2 leading-tight">
+                    <p className="text-[10px] sm:text-xs text-zinc-500 dark:text-zinc-400 mt-0.5 line-clamp-2 leading-tight">
                       {dish.description}
                     </p>
                   </div>
                 </div>
 
                 {/* Card Bottom Direct Add Action */}
-                <div className="mt-2.5 pt-2 border-t border-zinc-100">
+                <div className="mt-2.5 pt-2 border-t border-zinc-100 dark:border-zinc-800">
                   {dish.isAvailable ? (
                     <button
                       onClick={(e) => handleQuickAdd(e, rawDish)}
@@ -611,7 +572,7 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
                   ) : (
                     <button
                       disabled
-                      className="w-full bg-zinc-100 text-zinc-400 py-2 rounded-xl text-xs font-bold cursor-not-allowed"
+                      className="w-full bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500 py-2 rounded-xl text-xs font-bold cursor-not-allowed"
                     >
                       {t.soldOut}
                     </button>
@@ -625,20 +586,20 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
       )}
 
       {/* Restaurant Info & Contacts Footer Card */}
-      <div className="bg-white border border-zinc-200/90 rounded-2xl p-5 shadow-xs space-y-4">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-zinc-100 pb-4">
+      <div className="bg-white dark:bg-zinc-900 border border-zinc-200/90 dark:border-zinc-700/80 rounded-2xl p-5 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-zinc-100 dark:border-zinc-800 pb-4">
           <div className="flex items-center space-x-3">
             {logoUrl ? (
-              <img src={logoUrl} alt="Restaurant logo" className="w-10 h-10 rounded-2xl object-cover shadow-sm border border-zinc-200" />
+              <img src={logoUrl} alt="Restaurant logo" className="w-10 h-10 rounded-2xl object-cover shadow-sm border border-zinc-200 dark:border-zinc-700" />
             ) : (
               <div style={{ backgroundColor: accentColor }} className="w-10 h-10 rounded-2xl flex items-center justify-center text-white font-black text-lg shadow-sm">
                 {(restaurantName || 'B').charAt(0).toUpperCase()}
               </div>
             )}
             <div>
-              <h3 className="font-black text-base text-zinc-900 uppercase tracking-tight">{restaurantName || t.appTitle}</h3>
+              <h3 className="font-black text-base text-zinc-900 dark:text-zinc-100 uppercase tracking-tight">{restaurantName || t.appTitle}</h3>
               {contactAddress && (
-                <p className="text-xs text-orange-600 font-bold flex items-center space-x-1">
+                <p className="text-xs text-orange-600 dark:text-orange-400 font-bold flex items-center space-x-1">
                   <span>📍 {contactAddress}</span>
                 </p>
               )}
@@ -648,7 +609,7 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
           {onOpenLocation && (contactAddress || contactPhone || contactInstagram) && (
             <button
               onClick={onOpenLocation}
-              className="bg-orange-50 hover:bg-orange-100 border border-orange-200 text-orange-800 font-extrabold text-xs px-3 py-2 rounded-xl transition-colors shadow-2xs"
+              className="bg-orange-50 dark:bg-orange-500/15 hover:bg-orange-100 dark:hover:bg-orange-500/25 border border-orange-200 dark:border-orange-500/20 text-orange-800 dark:text-orange-300 font-extrabold text-xs px-3 py-2 rounded-xl transition-colors shadow-2xs"
             >
               View Location & Map →
             </button>
@@ -662,14 +623,14 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
                 href={`https://instagram.com/${contactInstagram.replace(/^@/, '')}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="p-3 bg-zinc-50 hover:bg-pink-50/80 border border-zinc-200/80 rounded-xl flex items-center space-x-2.5 text-xs font-extrabold text-zinc-800 transition-colors group"
+                className="p-3 bg-zinc-50 dark:bg-zinc-800/60 hover:bg-pink-50/80 dark:hover:bg-pink-500/10 border border-zinc-200/80 dark:border-zinc-700 rounded-xl flex items-center space-x-2.5 text-xs font-extrabold text-zinc-800 dark:text-zinc-200 transition-colors group"
               >
                 <span className="p-2 bg-gradient-to-tr from-amber-500 via-rose-500 to-purple-600 text-white rounded-lg group-hover:scale-105 transition-transform">
                   📸
                 </span>
                 <div className="overflow-hidden">
-                  <span className="text-[10px] text-zinc-400 font-bold block uppercase">Instagram</span>
-                  <span className="truncate text-zinc-900 font-black">@{contactInstagram.replace(/^@/, '')}</span>
+                  <span className="text-[10px] text-zinc-400 dark:text-zinc-500 font-bold block uppercase">Instagram</span>
+                  <span className="truncate text-zinc-900 dark:text-zinc-100 font-black">@{contactInstagram.replace(/^@/, '')}</span>
                 </div>
               </a>
             )}
@@ -677,14 +638,14 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
             {contactPhone && (
               <a
                 href={`tel:${contactPhone}`}
-                className="p-3 bg-zinc-50 hover:bg-orange-50/80 border border-zinc-200/80 rounded-xl flex items-center space-x-2.5 text-xs font-extrabold text-zinc-800 transition-colors group"
+                className="p-3 bg-zinc-50 dark:bg-zinc-800/60 hover:bg-orange-50/80 dark:hover:bg-orange-500/10 border border-zinc-200/80 dark:border-zinc-700 rounded-xl flex items-center space-x-2.5 text-xs font-extrabold text-zinc-800 dark:text-zinc-200 transition-colors group"
               >
                 <span className="p-2 bg-orange-500 text-white rounded-lg group-hover:scale-105 transition-transform">
                   📞
                 </span>
                 <div className="overflow-hidden">
-                  <span className="text-[10px] text-zinc-400 font-bold block uppercase">Phone Number</span>
-                  <span className="truncate text-zinc-900 font-black">{contactPhone}</span>
+                  <span className="text-[10px] text-zinc-400 dark:text-zinc-500 font-bold block uppercase">Phone Number</span>
+                  <span className="truncate text-zinc-900 dark:text-zinc-100 font-black">{contactPhone}</span>
                 </div>
               </a>
             )}

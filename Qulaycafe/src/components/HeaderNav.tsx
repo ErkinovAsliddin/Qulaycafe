@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { GoogleUser } from '../types';
-import { Utensils, QrCode, MapPin, UserCheck, Menu, X, Phone, Instagram, ReceiptText } from 'lucide-react';
+import { Utensils, QrCode, MapPin, UserCheck, Menu, X, Phone, Instagram, ReceiptText, Moon, Sun, MonitorSmartphone } from 'lucide-react';
 import { Language, translations } from '../lib/translations';
+import { ThemeChoice, useTheme } from '../utils/ThemeContext';
 
 // Guest-facing header. It deliberately has NO notion of an app "view": the
 // kitchen and admin surfaces live on their own hostnames
@@ -31,6 +32,44 @@ interface HeaderNavProps {
   };
 }
 
+/** Light / dark / follow-the-phone tri-state, shown as one compact strip. */
+const ThemeToggle: React.FC<{ compact?: boolean; lang: Language }> = ({ compact = false, lang }) => {
+  const { choice, setChoice } = useTheme();
+  const t = translations[lang];
+  const options: { value: ThemeChoice; icon: React.ReactNode; label: string }[] = [
+    { value: 'light', icon: <Sun className="w-3.5 h-3.5" />, label: t.themeLight },
+    { value: 'dark', icon: <Moon className="w-3.5 h-3.5" />, label: t.themeDark },
+    { value: 'system', icon: <MonitorSmartphone className="w-3.5 h-3.5" />, label: t.themeSystem }
+  ];
+  return (
+    <div
+      className={`inline-flex items-center bg-zinc-100 dark:bg-zinc-800 p-0.5 rounded-lg border border-zinc-200 dark:border-zinc-700 ${compact ? '' : 'w-full justify-between'}`}
+      role="group"
+      aria-label={t.themeToggleLabel}
+    >
+      {options.map(opt => (
+        <button
+          key={opt.value}
+          onClick={() => setChoice(opt.value)}
+          aria-pressed={choice === opt.value}
+          title={opt.label}
+          aria-label={opt.label}
+          className={`flex items-center justify-center rounded-md transition-colors ${
+            compact ? 'p-1.5' : 'flex-1 py-1.5 space-x-1'
+          } ${
+            choice === opt.value
+              ? 'bg-orange-500 text-white shadow-xs'
+              : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100'
+          }`}
+        >
+          {opt.icon}
+          {!compact && <span className="text-[10px] font-extrabold">{opt.label}</span>}
+        </button>
+      ))}
+    </div>
+  );
+};
+
 export const HeaderNav: React.FC<HeaderNavProps> = ({
   tableNumber,
   onOpenQRScanner,
@@ -53,7 +92,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
 
   return (
     <>
-      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md text-zinc-900 border-b border-zinc-200 shadow-xs">
+      <header className="sticky top-0 z-40 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md text-zinc-900 dark:text-zinc-100 border-b border-zinc-200 dark:border-zinc-700 shadow-xs">
         <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-14 sm:h-16 gap-1.5 sm:gap-2">
 
@@ -61,12 +100,12 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             <div className="flex items-center space-x-2 shrink-0">
               <button
                 onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-                className="p-2 text-zinc-700 hover:text-zinc-900 bg-zinc-100 hover:bg-zinc-200 rounded-xl transition-colors border border-zinc-200/80 shrink-0"
+                className="p-2 text-zinc-700 dark:text-zinc-200 hover:text-zinc-900 dark:hover:text-white bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded-xl transition-colors border border-zinc-200/80 dark:border-zinc-700 shrink-0"
                 title={t.navMenu}
                 aria-label={t.navMenu}
                 aria-expanded={isMobileMenuOpen}
               >
-                {isMobileMenuOpen ? <X className="w-5 h-5 text-zinc-900" /> : <Menu className="w-5 h-5 text-zinc-900" />}
+                {isMobileMenuOpen ? <X className="w-5 h-5 text-zinc-900 dark:text-zinc-100" /> : <Menu className="w-5 h-5 text-zinc-900 dark:text-zinc-100" />}
               </button>
 
               <div className="flex items-center space-x-1.5 text-left">
@@ -74,7 +113,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
                   <Utensils className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
                 </div>
                 <div className="hidden min-[380px]:block">
-                  <span className="font-black text-xs sm:text-sm tracking-tight text-zinc-900 uppercase truncate max-w-[140px] sm:max-w-none block">
+                  <span className="font-black text-xs sm:text-sm tracking-tight text-zinc-900 dark:text-zinc-100 uppercase truncate max-w-[140px] sm:max-w-none block">
                     {displayName}
                   </span>
                 </div>
@@ -87,20 +126,25 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
               {/* Location & Contact Button */}
               <button
                 onClick={onOpenLocation}
-                className="bg-orange-50 hover:bg-orange-100 text-orange-900 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg sm:rounded-xl border border-orange-200 text-xs font-bold flex items-center space-x-1 transition-colors shrink-0"
+                className="bg-orange-50 dark:bg-orange-500/15 hover:bg-orange-100 dark:hover:bg-orange-500/25 text-orange-900 dark:text-orange-300 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg sm:rounded-xl border border-orange-200 dark:border-orange-500/20 text-xs font-bold flex items-center space-x-1 transition-colors shrink-0"
                 title={t.locationAndContact}
                 aria-label={t.locationAndContact}
               >
                 <MapPin className="w-3.5 h-3.5 shrink-0 text-orange-500" />
               </button>
 
+              {/* Dark mode quick toggle (desktop) — full tri-state in the drawer */}
+              <div className="hidden sm:block shrink-0">
+                <ThemeToggle compact lang={lang} />
+              </div>
+
               {/* Google OAuth Login Button / Profile Badge */}
               <button
                 onClick={onOpenGoogleAuth}
                 className={`p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg sm:rounded-xl border text-xs font-extrabold flex items-center space-x-1.5 transition-all shadow-xs shrink-0 ${
                   googleUser
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-900 hover:bg-emerald-100'
-                    : 'bg-white hover:bg-zinc-50 border-zinc-200 text-zinc-800'
+                    ? 'bg-emerald-50 dark:bg-emerald-500/15 border-emerald-200 dark:border-emerald-500/20 text-emerald-900 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-500/25'
+                    : 'bg-white dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200'
                 }`}
                 title={googleUser ? `Gmail: ${googleUser.email}` : t.googleSignIn}
               >
@@ -139,13 +183,13 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
               </button>
 
               {/* Language Switcher Buttons (Desktop) */}
-              <div className="hidden sm:flex items-center bg-zinc-100 p-0.5 rounded-lg border border-zinc-200 shrink-0">
+              <div className="hidden sm:flex items-center bg-zinc-100 dark:bg-zinc-800 p-0.5 rounded-lg border border-zinc-200 dark:border-zinc-700 shrink-0">
                 {(['uz', 'ru', 'en'] as Language[]).map(code => (
                   <button
                     key={code}
                     onClick={() => onLanguageChange(code)}
                     className={`px-1.5 py-0.5 text-[10px] font-extrabold rounded-md transition-colors ${
-                      lang === code ? 'bg-orange-500 text-white' : 'text-zinc-600 hover:text-zinc-900'
+                      lang === code ? 'bg-orange-500 text-white' : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100'
                     }`}
                     title={code === 'uz' ? "O'zbekcha" : code === 'ru' ? 'Русский' : 'English'}
                     aria-pressed={lang === code}
@@ -185,36 +229,42 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
           />
 
           {/* Drawer Sidebar Content */}
-          <div className="relative w-full max-w-xs bg-white h-full shadow-2xl flex flex-col justify-between p-5 overflow-y-auto animate-slideRight">
+          <div className="relative w-full max-w-xs bg-white dark:bg-zinc-900 h-full shadow-2xl flex flex-col justify-between p-5 overflow-y-auto animate-slideRight">
 
             <div className="space-y-6">
               {/* Header */}
-              <div className="flex items-center justify-between pb-4 border-b border-zinc-100">
+              <div className="flex items-center justify-between pb-4 border-b border-zinc-100 dark:border-zinc-800">
                 <div className="flex items-center space-x-2.5 overflow-hidden">
                   <div className="w-9 h-9 bg-orange-500 text-white rounded-2xl flex items-center justify-center font-black text-base shadow-sm shrink-0">
                     {displayName.charAt(0).toUpperCase()}
                   </div>
                   <div className="overflow-hidden">
-                    <h2 className="font-extrabold text-base text-zinc-900 leading-tight uppercase truncate">{displayName}</h2>
+                    <h2 className="font-extrabold text-base text-zinc-900 dark:text-zinc-100 leading-tight uppercase truncate">{displayName}</h2>
                     {branding?.contactAddress && (
-                      <p className="text-[11px] text-orange-600 font-bold truncate">{branding.contactAddress}</p>
+                      <p className="text-[11px] text-orange-600 dark:text-orange-400 font-bold truncate">{branding.contactAddress}</p>
                     )}
                   </div>
                 </div>
 
                 <button
                   onClick={() => setIsMobileMenuOpen(false)}
-                  className="p-2 text-zinc-400 hover:text-zinc-800 bg-zinc-100 rounded-full transition-colors shrink-0"
+                  className="p-2 text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-100 bg-zinc-100 dark:bg-zinc-800 rounded-full transition-colors shrink-0"
                   aria-label={t.bookClose}
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
+              {/* Dark mode — full light/dark/system tri-state on mobile */}
+              <div className="space-y-2">
+                <span className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">{t.themeToggleLabel}</span>
+                <ThemeToggle lang={lang} />
+              </div>
+
               {/* Language Switcher Section */}
               <div className="space-y-2">
-                <span className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider block">Language / Tillar</span>
-                <div className="grid grid-cols-3 gap-1.5 bg-zinc-100 p-1 rounded-xl border border-zinc-200">
+                <span className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">Language / Tillar</span>
+                <div className="grid grid-cols-3 gap-1.5 bg-zinc-100 dark:bg-zinc-800 p-1 rounded-xl border border-zinc-200 dark:border-zinc-700">
                   {([
                     ['uz', "🇺🇿 O'zbek"],
                     ['ru', '🇷🇺 Русский'],
@@ -224,7 +274,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
                       key={code}
                       onClick={() => onLanguageChange(code)}
                       className={`py-1.5 text-xs font-black rounded-lg transition-all ${
-                        lang === code ? 'bg-orange-500 text-white shadow-xs' : 'text-zinc-600 hover:text-zinc-900'
+                        lang === code ? 'bg-orange-500 text-white shadow-xs' : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100'
                       }`}
                       aria-pressed={lang === code}
                     >
@@ -242,7 +292,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
                     onOpenGoogleAuth();
                     setIsMobileMenuOpen(false);
                   }}
-                  className="w-full bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 p-3 rounded-2xl flex items-center justify-between text-left transition-colors"
+                  className="w-full bg-zinc-50 dark:bg-zinc-800/60 hover:bg-zinc-100 dark:hover:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 p-3 rounded-2xl flex items-center justify-between text-left transition-colors"
                 >
                   <div className="flex items-center space-x-3 overflow-hidden">
                     {googleUser ? (
@@ -254,7 +304,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
                         </div>
                       )
                     ) : (
-                      <div className="w-9 h-9 rounded-full bg-white border border-zinc-200 flex items-center justify-center shrink-0">
+                      <div className="w-9 h-9 rounded-full bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 flex items-center justify-center shrink-0">
                         <svg className="w-5 h-5" viewBox="0 0 24 24" aria-hidden="true">
                           <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z" />
                           <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.24v3.15C3.26 21.36 7.37 24 12 24z" />
@@ -264,20 +314,20 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
                       </div>
                     )}
                     <div className="overflow-hidden">
-                      <span className="text-xs font-black text-zinc-900 block truncate">
+                      <span className="text-xs font-black text-zinc-900 dark:text-zinc-100 block truncate">
                         {googleUser ? googleUser.name : t.googleSignIn}
                       </span>
                       {/* The sub-label only ever advertised the points program,
                           so it goes when that program is switched off. */}
                       {(googleUser || loyaltyEnabled) && (
-                        <span className="text-[11px] text-zinc-500 font-medium block truncate">
+                        <span className="text-[11px] text-zinc-500 dark:text-zinc-400 font-medium block truncate">
                           {googleUser ? googleUser.email : t.loyalty}
                         </span>
                       )}
                     </div>
                   </div>
 
-                  <span className="text-xs font-bold text-orange-600 shrink-0">
+                  <span className="text-xs font-bold text-orange-600 dark:text-orange-400 shrink-0">
                     {googleUser ? '⚙' : '→'}
                   </span>
                 </button>
@@ -291,16 +341,16 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
                     onOpenOrderHistory();
                     setIsMobileMenuOpen(false);
                   }}
-                  className="w-full bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 p-3 rounded-2xl flex items-center justify-between text-left transition-colors"
+                  className="w-full bg-zinc-50 dark:bg-zinc-800/60 hover:bg-zinc-100 dark:hover:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 p-3 rounded-2xl flex items-center justify-between text-left transition-colors"
                 >
                   <div className="flex items-center space-x-3">
-                    <div className="p-2 rounded-xl bg-zinc-800 text-orange-400">
+                    <div className="p-2 rounded-xl bg-zinc-800 dark:bg-zinc-800 text-orange-400">
                       <ReceiptText className="w-4 h-4" />
                     </div>
                     <div>
-                      <span className="text-xs font-black text-zinc-900 block">{t.myOrders}</span>
+                      <span className="text-xs font-black text-zinc-900 dark:text-zinc-100 block">{t.myOrders}</span>
                       {loyaltyEnabled && (
-                        <span className="text-[11px] text-zinc-500 block">
+                        <span className="text-[11px] text-zinc-500 dark:text-zinc-400 block">
                           {typeof loyaltyPoints === 'number' ? `${loyaltyPoints} ${t.points}` : t.loyalty}
                         </span>
                       )}
@@ -318,15 +368,15 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
                       onOpenQRScanner();
                       setIsMobileMenuOpen(false);
                     }}
-                    className="w-full bg-orange-50 hover:bg-orange-100 border border-orange-200/90 p-3 rounded-2xl flex items-center justify-between text-left transition-colors"
+                    className="w-full bg-orange-50 dark:bg-orange-500/15 hover:bg-orange-100 dark:hover:bg-orange-500/25 border border-orange-200/90 dark:border-orange-500/20 p-3 rounded-2xl flex items-center justify-between text-left transition-colors"
                   >
                     <div className="flex items-center space-x-3">
                       <div className="p-2 rounded-xl bg-orange-500 text-white">
                         <QrCode className="w-4 h-4" />
                       </div>
                       <div>
-                        <span className="text-xs font-black text-orange-950 block">{t.table} #{tableNumber || 1}</span>
-                        <span className="text-[11px] text-orange-800 font-medium block">{t.scanQR}</span>
+                        <span className="text-xs font-black text-orange-950 dark:text-orange-300 block">{t.table} #{tableNumber || 1}</span>
+                        <span className="text-[11px] text-orange-800 dark:text-orange-400 font-medium block">{t.scanQR}</span>
                       </div>
                     </div>
                   </button>
@@ -335,22 +385,22 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
 
               {/* Location & Contact Info */}
               <div className="space-y-2">
-                <span className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider block">{displayName} — {t.locationAndContact}</span>
+                <span className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">{displayName} — {t.locationAndContact}</span>
 
                 <button
                   onClick={() => {
                     onOpenLocation();
                     setIsMobileMenuOpen(false);
                   }}
-                  className="w-full bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 p-3 rounded-2xl flex items-center justify-between transition-colors text-left"
+                  className="w-full bg-zinc-50 dark:bg-zinc-800/60 hover:bg-zinc-100 dark:hover:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 p-3 rounded-2xl flex items-center justify-between transition-colors text-left"
                 >
                   <div className="flex items-center space-x-3">
                     <div className="p-2 rounded-xl bg-zinc-800 text-orange-400">
                       <MapPin className="w-4 h-4" />
                     </div>
                     <div>
-                      <span className="text-xs font-black text-zinc-900 block">{branding?.contactAddress || t.locationAndContact}</span>
-                      <span className="text-[11px] text-zinc-500 block">{t.openInMaps}</span>
+                      <span className="text-xs font-black text-zinc-900 dark:text-zinc-100 block">{branding?.contactAddress || t.locationAndContact}</span>
+                      <span className="text-[11px] text-zinc-500 dark:text-zinc-400 block">{t.openInMaps}</span>
                     </div>
                   </div>
                 </button>
@@ -360,7 +410,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
                     {branding?.contactPhone && (
                       <a
                         href={`tel:${branding.contactPhone}`}
-                        className="p-2.5 bg-zinc-50 hover:bg-orange-50 border border-zinc-200 rounded-xl flex items-center space-x-2 text-xs font-bold text-zinc-800 transition-colors"
+                        className="p-2.5 bg-zinc-50 dark:bg-zinc-800/60 hover:bg-orange-50 dark:hover:bg-orange-500/15 border border-zinc-200 dark:border-zinc-700 rounded-xl flex items-center space-x-2 text-xs font-bold text-zinc-800 dark:text-zinc-200 transition-colors"
                       >
                         <Phone className="w-3.5 h-3.5 text-orange-500 shrink-0" />
                         <span className="truncate">{branding.contactPhone}</span>
@@ -371,7 +421,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
                         href={`https://instagram.com/${branding.contactInstagram.replace(/^@/, '')}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="p-2.5 bg-zinc-50 hover:bg-pink-50 border border-zinc-200 rounded-xl flex items-center space-x-2 text-xs font-bold text-zinc-800 transition-colors"
+                        className="p-2.5 bg-zinc-50 dark:bg-zinc-800/60 hover:bg-pink-50 dark:hover:bg-pink-500/15 border border-zinc-200 dark:border-zinc-700 rounded-xl flex items-center space-x-2 text-xs font-bold text-zinc-800 dark:text-zinc-200 transition-colors"
                       >
                         <Instagram className="w-3.5 h-3.5 text-pink-600 shrink-0" />
                         <span className="truncate">Instagram</span>
@@ -384,9 +434,9 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             </div>
 
             {/* Bottom Footer */}
-            <div className="pt-4 border-t border-zinc-100 text-center space-y-1">
-              <p className="text-[11px] font-extrabold text-zinc-800">{displayName}{branding?.contactAddress ? ` • ${branding.contactAddress}` : ''}</p>
-              <p className="text-[10px] text-zinc-400">Qulaycafe orqali ishlaydi</p>
+            <div className="pt-4 border-t border-zinc-100 dark:border-zinc-800 text-center space-y-1">
+              <p className="text-[11px] font-extrabold text-zinc-800 dark:text-zinc-200">{displayName}{branding?.contactAddress ? ` • ${branding.contactAddress}` : ''}</p>
+              <p className="text-[10px] text-zinc-400 dark:text-zinc-500">Qulaycafe orqali ishlaydi</p>
             </div>
 
           </div>

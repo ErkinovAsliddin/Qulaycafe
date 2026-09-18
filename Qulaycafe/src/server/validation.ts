@@ -367,3 +367,20 @@ export const reservationUpdateSchema = z
     message: 'At least one field is required'
   });
 
+// --- Guest reviews (rate the dishes of a served order) ---
+// One rating per dish, submitted together as the guest's whole review of the
+// order. Bounded hard: ratings are exactly 1..5, and the free-text comment is
+// a short note, not a paste target.
+export const reviewRatingField = z.number().int().min(1).max(5);
+
+export const reviewDishSchema = z.object({
+  menuItemId: z.string().trim().min(1).max(120),
+  rating: reviewRatingField
+});
+
+export const reviewSubmitSchema = z.object({
+  orderId: z.string().trim().min(1).max(80),
+  ratings: z.array(reviewDishSchema).min(1).max(30),
+  comment: z.string().trim().max(500).optional()
+});
+

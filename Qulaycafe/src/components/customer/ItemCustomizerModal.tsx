@@ -87,8 +87,8 @@ export const ItemCustomizerModal: React.FC<ItemCustomizerModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-zinc-900/60 backdrop-blur-sm animate-fadeIn">
-      <div className="bg-white border border-zinc-200 text-zinc-900 rounded-2xl max-w-lg w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden relative">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-zinc-900/60 dark:bg-black/80 backdrop-blur-sm animate-fadeIn">
+      <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100 rounded-2xl max-w-lg w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden relative">
         
         {/* Header Image Banner */}
         <div className="relative h-48 sm:h-56 w-full overflow-hidden bg-zinc-100">
@@ -102,7 +102,7 @@ export const ItemCustomizerModal: React.FC<ItemCustomizerModalProps> = ({
           
           <button
             onClick={onClose}
-            className="absolute top-3 right-3 bg-white/80 hover:bg-white text-zinc-900 p-2 rounded-full backdrop-blur-md border border-zinc-200 shadow-sm transition-colors"
+            className="absolute top-3 right-3 bg-white/80 dark:bg-zinc-900/80 hover:bg-white dark:hover:bg-zinc-900 text-zinc-900 dark:text-zinc-100 p-2 rounded-full backdrop-blur-md border border-zinc-200 dark:border-zinc-700 shadow-sm transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -129,8 +129,8 @@ export const ItemCustomizerModal: React.FC<ItemCustomizerModalProps> = ({
           
           {/* Title & Description */}
           <div>
-            <h3 className="text-xl font-bold text-zinc-900 tracking-tight">{item.name}</h3>
-            <p className="text-zinc-500 text-xs sm:text-sm mt-1 leading-relaxed">
+            <h3 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 tracking-tight">{item.name}</h3>
+            <p className="text-zinc-500 dark:text-zinc-400 text-xs sm:text-sm mt-1 leading-relaxed">
               {item.description}
             </p>
           </div>
@@ -138,13 +138,13 @@ export const ItemCustomizerModal: React.FC<ItemCustomizerModalProps> = ({
 
           {/* Customization Options */}
           {item.customizations && item.customizations.map(group => (
-            <div key={group.id} className="bg-zinc-50 border border-zinc-200 rounded-xl p-3.5 space-y-2.5">
+            <div key={group.id} className="bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 rounded-xl p-3.5 space-y-2.5">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-zinc-800 uppercase tracking-wider">
+                <span className="text-xs font-bold text-zinc-800 dark:text-zinc-200 uppercase tracking-wider">
                   {group.title}
                 </span>
                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
-                  group.required ? 'bg-orange-100 text-orange-800 border border-orange-200' : 'bg-zinc-200 text-zinc-600'
+                  group.required ? 'bg-orange-100 dark:bg-orange-500/20 text-orange-800 dark:text-orange-300 border border-orange-200 dark:border-orange-500/20' : 'bg-zinc-200 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300'
                 }`}>
                   {group.required ? t.required : t.optional}
                 </span>
@@ -163,19 +163,19 @@ export const ItemCustomizerModal: React.FC<ItemCustomizerModalProps> = ({
                       onClick={() => handleSelectOption(group.title, opt.name, opt.price, group.required)}
                       className={`w-full flex items-center justify-between p-2.5 rounded-lg text-xs font-medium transition-all border ${
                         isSelected
-                          ? 'bg-orange-50 border-orange-300 text-orange-900 font-bold'
-                          : 'bg-white border-zinc-200 text-zinc-700 hover:border-zinc-300'
+                          ? 'bg-orange-50 dark:bg-orange-500/15 border-orange-300 dark:border-orange-500/40 text-orange-900 dark:text-orange-300 font-bold'
+                          : 'bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600'
                       }`}
                     >
                       <div className="flex items-center space-x-2">
                         <div className={`w-4 h-4 rounded-${group.required ? 'full' : 'md'} border flex items-center justify-center ${
-                          isSelected ? 'bg-orange-500 border-orange-500 text-white' : 'border-zinc-300 bg-white'
+                          isSelected ? 'bg-orange-500 border-orange-500 text-white' : 'border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800'
                         }`}>
                           {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
                         </div>
                         <span>{opt.name}</span>
                       </div>
-                      <span className="text-zinc-500">
+                      <span className="text-zinc-500 dark:text-zinc-400">
                         {opt.price > 0 ? `+${formatPrice(opt.price)}` : t.free}
                       </span>
                     </button>
@@ -187,36 +187,36 @@ export const ItemCustomizerModal: React.FC<ItemCustomizerModalProps> = ({
 
           {/* Special Kitchen Note Input */}
           <div>
-            <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-1.5">
+            <label className="block text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest mb-1.5">
               {t.specialInstructions}
             </label>
             <textarea
               value={specialInstructions}
               onChange={e => setSpecialInstructions(e.target.value)}
               placeholder={t.specialInstructionsPlaceholder}
-              className="w-full bg-white border border-zinc-200 rounded-xl p-3 text-xs text-zinc-900 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors resize-none h-20"
+              className="w-full bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl p-3 text-xs text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors resize-none h-20"
             />
           </div>
 
         </div>
 
         {/* Footer Actions */}
-        <div className="p-4 bg-white border-t border-zinc-200 flex items-center justify-between space-x-3">
+        <div className="p-4 bg-white dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-700 flex items-center justify-between space-x-3">
           
           {/* Quantity Selector */}
-          <div className="flex items-center bg-zinc-100 rounded-xl p-1 border border-zinc-200">
+          <div className="flex items-center bg-zinc-100 dark:bg-zinc-800 rounded-xl p-1 border border-zinc-200 dark:border-zinc-700">
             <button
               onClick={() => setQuantity(q => Math.max(1, q - 1))}
-              className="p-2 text-zinc-600 hover:text-zinc-900 transition-colors"
+              className="p-2 text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white transition-colors"
             >
               <Minus className="w-4 h-4" />
             </button>
-            <span className="w-8 text-center text-sm font-bold text-zinc-900">
+            <span className="w-8 text-center text-sm font-bold text-zinc-900 dark:text-zinc-100">
               {quantity}
             </span>
             <button
               onClick={() => setQuantity(q => Math.min(50, q + 1))}
-              className="p-2 text-zinc-600 hover:text-zinc-900 transition-colors"
+              className="p-2 text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white transition-colors"
             >
               <Plus className="w-4 h-4" />
             </button>

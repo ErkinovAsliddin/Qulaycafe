@@ -1,5 +1,12 @@
 @import "tailwindcss";
 
+/* Dark mode is class-based, not media-based: ThemeContext toggles `.dark` on
+   <html> so a guest's explicit light/dark/system pick wins over whatever the
+   OS says. The landing page keeps Tailwind's default (OS) behavior — this
+   custom variant is global to the compiled stylesheet, but only the four app
+   surfaces ship `dark:` utilities, so nothing changes there in practice. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* The marketing site under src/landing/ has its own stylesheet and its own
    token set. Excluding it here keeps its utilities (and its typography scale)
    out of the four app surfaces' CSS, which Tailwind's automatic source

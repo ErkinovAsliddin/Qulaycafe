@@ -368,6 +368,38 @@ function createBaseSchema() {
     CREATE INDEX IF NOT EXISTS idx_categories_sort
       ON categories (restaurant_id, sort_order, id);
 
+    -- Guest reviews. One row per (order, dish) the guest chose to rate after
+    -- their order was served. Ratings are stored in a dedicated table rather
+    -- than on the order row so a guest can rate once per dish even when the
+    -- order itself is later deleted by the retention/cleanup endpoint.
+    --
+    -- guest_contact is whatever the guest typed at checkout (phone/email) and
+    -- may be '' for an anonymous table guest; it is only used by the admin UI
+    -- to see who complained, never shown to other guests.
+    CREATE TABLE IF NOT EXISTS reviews (
+      restaurant_id TEXT NOT NULL,
+      id TEXT NOT NULL,
+      order_id TEXT NOT NULL,
+      table_number INTEGER,
+      guest_contact TEXT NOT NULL DEFAULT '',
+      menu_item_id TEXT NOT NULL,
+      menu_item_name TEXT NOT NULL,
+      rating INTEGER NOT NULL, -- 1..5 stars
+      comment TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (restaurant_id, id)
+    );
+    -- The dashboard aggregates by dish, and the low-rating scan looks for the
+    -- most recent reviews — both scans are per-tenant.
+    CREATE INDEX IF NOT EXISTS idx_reviews_restaurant_created
+      ON reviews (restaurant_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_reviews_restaurant_item
+      ON reviews (restaurant_id, menu_item_id);
+    -- A guest rates a given dish of an order at most once; enforced here so a
+    -- retried submit or a double tap cannot inflate an average.
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_reviews_order_item
+      ON reviews (restaurant_id, order_id, menu_item_id);
+
     -- Uploaded photos, as bytes, one row per dish photo / restaurant logo.
     --
     -- They used to be kept as base64 data: URIs INSIDE menu_items.data and
@@ -881,6 +913,175 @@ migrateDedupeCouriers();
 migrateAddCourierLocationColumn();
 migrateSeedCategories();
 migrateExtractInlineImages();
+
+// ---------------------------------------------------------------------------
+// Guest reviews — one row per (order, dish) the guest rated after it was
+// served. See the CREATE TABLE comment near the top of this file for why this
+// is its own table and not a field on the order.
+// ---------------------------------------------------------------------------
+export interface Review {
+  id: string;
+  orderId: string;
+  tableNumber: number | null;
+  guestContact: string;
+  menuItemId: string;
+  menuItemName: string;
+  rating: number;
+  comment: string;
+  createdAt: string;
+}
+
+export interface DishRatingSummary {
+  menuItemId: string;
+  menuItemName: string;
+  averageRating: number;
+  totalReviews: number;
+  /** Counts keyed by rating, 1 through 5 — the dashboard's star bars. */
+  ratingCounts: Record<1 | 2 | 3 | 4 | 5, number>;
+  lastReviewAt: string;
+}
+
+interface ReviewRow {
+  id: string;
+  order_id: string;
+  table_number: number | null;
+  guest_contact: string;
+  menu_item_id: string;
+  menu_item_name: string;
+  rating: number;
+  comment: string;
+  created_at: string;
+}
+
+function rowToReview(row: ReviewRow): Review {
+  return {
+    id: row.id,
+    orderId: row.order_id,
+    tableNumber: row.table_number,
+    guestContact: row.guest_contact,
+    menuItemId: row.menu_item_id,
+    menuItemName: row.menu_item_name,
+    rating: row.rating,
+    comment: row.comment,
+    createdAt: row.created_at
+  };
+}
+
+const REVIEWS_DAYS_RETAINED = 90;
+
+/**
+ * Inserts one dish rating. Returns false when the guest has already rated
+ * this dish of this order — the unique index catches the double submit, and
+ * the caller turns that into a friendly response rather than a 500.
+ */
+export function createReview(
+  restaurantId: string,
+  input: {
+    orderId: string;
+    tableNumber: number | null;
+    guestContact: string;
+    menuItemId: string;
+    menuItemName: string;
+    rating: number;
+    comment: string;
+  }
+): boolean {
+  try {
+    db.prepare(
+      `INSERT INTO reviews (restaurant_id, id, order_id, table_number, guest_contact, menu_item_id, menu_item_name, rating, comment, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      restaurantId,
+      genId('rev'),
+      input.orderId,
+      input.tableNumber,
+      input.guestContact,
+      input.menuItemId,
+      input.menuItemName,
+      input.rating,
+      input.comment,
+      new Date().toISOString()
+    );
+    return true;
+  } catch (err: any) {
+    // SQLite UNIQUE violation: the (restaurant, order, dish) triple already
+    // has a review. Anything else is a real failure and is rethrown.
+    if (String(err?.code || '').startsWith('SQLITE_CONSTRAINT')) return false;
+    throw err;
+  }
+}
+
+/** Newest first, newest N — the admin list is a recent-feedback view. */
+export function listReviews(restaurantId: string, limit = 100): Review[] {
+  const rows = db
+    .prepare(
+      `SELECT id, order_id, table_number, guest_contact, menu_item_id, menu_item_name, rating, comment, created_at
+         FROM reviews
+        WHERE restaurant_id = ?
+        ORDER BY created_at DESC
+        LIMIT ?`
+    )
+    .all(restaurantId, Math.max(1, Math.min(500, limit))) as ReviewRow[];
+  return rows.map(rowToReview);
+}
+
+/** Whether this guest (one order) has already rated anything for this order. */
+export function orderHasReviews(restaurantId: string, orderId: string): boolean {
+  const row = db
+    .prepare('SELECT 1 FROM reviews WHERE restaurant_id = ? AND order_id = ? LIMIT 1')
+    .get(restaurantId, orderId);
+  return !!row;
+}
+
+/**
+ * Per-dish aggregates over the last `days` days, best rated first. Averaged
+ * in JS from raw rows — the same call also feeds the rating-count histogram,
+ * and one scan keeps the two from ever disagreeing.
+ */
+export function dishRatingSummaries(restaurantId: string, days = 30): DishRatingSummary[] {
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const rows = db
+    .prepare(
+      `SELECT menu_item_id, menu_item_name, rating, created_at
+         FROM reviews
+        WHERE restaurant_id = ? AND created_at >= ?`
+    )
+    .all(restaurantId, cutoff) as { menu_item_id: string; menu_item_name: string; rating: number; created_at: string }[];
+
+  const byDish = new Map<
+    string,
+    { menuItemName: string; sum: number; count: number; counts: Record<1 | 2 | 3 | 4 | 5, number>; lastReviewAt: string }
+  >();
+  for (const row of rows) {
+    const entry =
+      byDish.get(row.menu_item_id) ||
+      { menuItemName: row.menu_item_name, sum: 0, count: 0, counts: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }, lastReviewAt: row.created_at };
+    entry.sum += row.rating;
+    entry.count += 1;
+    const bucket = Math.max(1, Math.min(5, Math.round(row.rating))) as 1 | 2 | 3 | 4 | 5;
+    entry.counts[bucket] += 1;
+    if (row.created_at > entry.lastReviewAt) entry.lastReviewAt = row.created_at;
+    byDish.set(row.menu_item_id, entry);
+  }
+
+  return Array.from(byDish.entries())
+    .map(([menuItemId, e]) => ({
+      menuItemId,
+      menuItemName: e.menuItemName,
+      averageRating: Math.round((e.sum / e.count) * 10) / 10,
+      totalReviews: e.count,
+      ratingCounts: e.counts,
+      lastReviewAt: e.lastReviewAt
+    }))
+    .sort((a, b) => b.averageRating - a.averageRating || b.totalReviews - a.totalReviews);
+}
+
+/** Rolling retention: reviews older than REVIEWS_DAYS_RETAINED are deleted. */
+export function deleteOldReviews(): number {
+  const cutoff = new Date(Date.now() - REVIEWS_DAYS_RETAINED * 24 * 60 * 60 * 1000).toISOString();
+  const result = db.prepare('DELETE FROM reviews WHERE created_at < ?').run(cutoff);
+  return result.changes;
+}
 
 // ---------------------------------------------------------------------------
 // Restaurant / subscription helpers

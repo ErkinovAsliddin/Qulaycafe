@@ -13,6 +13,8 @@ import { GoogleAuthModal } from '../components/customer/GoogleAuthModal';
 import { RestaurantLocationModal } from '../components/customer/RestaurantLocationModal';
 import { ReservationModal } from '../components/customer/ReservationModal';
 import { WelcomeSplash } from '../components/customer/WelcomeSplash';
+import { ReviewModal } from '../components/customer/ReviewModal';
+import { ThemeProvider, useTheme } from '../utils/ThemeContext';
 import { ErrorToast, useErrorToast } from '../components/ErrorToast';
 import { CurrencyProvider } from '../utils/CurrencyContext';
 import {
@@ -28,6 +30,7 @@ import { describeApiError } from '../utils/apiErrors';
 import { cacheBranding, EMPTY_BRANDING, GuestBranding, loadCachedBranding } from '../utils/brandingCache';
 import {
   applyStatusUpdates,
+  GUEST_SESSION_MS,
   isCurrentTableSession,
   loadGuestOrders,
   PublicOrderView,
@@ -125,6 +128,11 @@ export default function CustomerApp() {
   const [telegramWebAppUser, setTelegramWebAppUser] = useState<TelegramWebAppUser | null>(null);
   const [isGoogleAuthModalOpen, setIsGoogleAuthModalOpen] = useState<boolean>(false);
   const [isLocationModalOpen, setIsLocationModalOpen] = useState<boolean>(false);
+  // Post-meal rating. `pendingReviewOrderId` is this device's most recent
+  // served order that the guest has not rated yet — the prompt is one gentle
+  // button in the status card, never an interrupting popup.
+  const [pendingReviewOrder, setPendingReviewOrder] = useState<Order | null>(null);
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState<boolean>(false);
   const [isWelcomeSplashOpen, setIsWelcomeSplashOpen] = useState<boolean>(!getBookingIntent());
   const [customerName, setCustomerName] = useState<string>(() => googleUser?.name || '');
   const [customerPhoneOrEmail, setCustomerPhoneOrEmail] = useState<string>(() => googleUser?.email || '');
@@ -274,6 +282,48 @@ export default function CustomerApp() {
     if (!tableNumber) return null;
     return live.find(o => o.tableNumber === tableNumber) || null;
   }, [myOrders, orderMode, tableNumber]);
+
+  // The most recent SERVED order this browser has not rated yet — exactly one
+  // candidate, derived from state rather than stored, so a crash or reload can
+  // never leave a stale prompt pointing at a different meal. localStorage
+  // makes the "already rated" decision survive a reload: the flag is written
+  // when the guest submits (or explicitly dismisses), and read only here.
+  const [ratedOrderIds, setRatedOrderIds] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem(`qulaycafe_rated_orders_${getRestaurantId()}`);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed.filter((id: unknown) => typeof id === 'string') : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const rememberRatedOrder = (orderId: string) => {
+    setRatedOrderIds(prev => {
+      const next = [orderId, ...prev.filter(id => id !== orderId)].slice(0, 20);
+      try {
+        localStorage.setItem(`qulaycafe_rated_orders_${getRestaurantId()}`, JSON.stringify(next));
+      } catch {
+        /* storage blocked — the in-memory flag still hides the prompt */
+      }
+      return next;
+    });
+  };
+
+  const pendingReviewCandidate = useMemo<Order | null>(() => {
+    return (
+      myOrders.find(
+        o =>
+          (o.status === 'served' || o.status === 'paid') &&
+          !ratedOrderIds.includes(o.id) &&
+          new Date(o.createdAt).getTime() >= Date.now() - GUEST_SESSION_MS
+      ) || null
+    );
+  }, [myOrders, ratedOrderIds]);
+
+  useEffect(() => {
+    setPendingReviewOrder(pendingReviewCandidate);
+  }, [pendingReviewCandidate]);
 
   // Catch this device's own orders up on whatever the kitchen did while the page
   // was closed. The endpoint answers with status only (publicOrderView in
@@ -613,8 +663,8 @@ export default function CustomerApp() {
   const cartCount = cartItems.reduce((acc, i) => acc + i.quantity, 0);
 
   return (
-    <CurrencyProvider>
-      <div className="min-h-screen bg-zinc-100 text-zinc-900 font-sans selection:bg-orange-500 selection:text-white">
+    <ThemeProvider>
+      <div className="min-h-screen bg-zinc-100 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 font-sans selection:bg-orange-500 selection:text-white">
         <ErrorToast message={errorToast} />
 
         <HeaderNav
@@ -667,14 +717,38 @@ export default function CustomerApp() {
             onOpenReservation={() => setIsReservationModalOpen(true)}
           />
 
-          <OrderStatusTracker activeOrder={activeCustomerOrder} hasCartItems={cartItems.length > 0} lang={lang} />
+          <OrderStatusTracker
+            activeOrder={activeCustomerOrder}
+            hasCartItems={cartItems.length > 0}
+            lang={lang}
+            // One-tap route into the rating form for the finished-but-unrated
+            // meal — the modal itself holds the dish list.
+            pendingReviewOrderId={pendingReviewOrder?.id || null}
+            onOpenReview={() => setIsReviewModalOpen(true)}
+          />
         </main>
+
+        {/* Post-meal rating */}
+        <ReviewModal
+          isOpen={isReviewModalOpen}
+          onClose={() => {
+            setIsReviewModalOpen(false);
+            // Closing counts as "handled" — the guest saw the form. Only a
+            // successful submit or this dismissal marks it rated, so the
+            // prompt never nags more than one session.
+            if (pendingReviewOrder) rememberRatedOrder(pendingReviewOrder.id);
+          }}
+          order={pendingReviewOrder}
+          lang={lang}
+        />
 
         {/* Table QR camera scanner */}
         <QRScannerModal
           isOpen={isQRScannerModalOpen}
           onClose={() => setIsQRScannerModalOpen(false)}
           onSelectTable={num => setTableNumber(num)}
+          tables={tables}
+          currentTable={tableNumber}
           lang={lang}
         />
 
@@ -801,6 +875,6 @@ export default function CustomerApp() {
           </div>
         )}
       </div>
-    </CurrencyProvider>
+    </ThemeProvider>
   );
 }

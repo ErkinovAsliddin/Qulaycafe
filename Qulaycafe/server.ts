@@ -99,7 +99,11 @@ import {
   getImageBlob,
   deleteImageBlob,
   inlineImageBlob,
-  DuplicateCategoryNameError
+  DuplicateCategoryNameError,
+  createReview,
+  listReviews,
+  orderHasReviews,
+  dishRatingSummaries
 } from './src/server/db';
 import {
   requireRole,
@@ -139,7 +143,8 @@ import {
   categoryReorderSchema,
   reservationUpdateSchema,
   reservationPublicCreateSchema,
-  reservationTokenSchema
+  reservationTokenSchema,
+  reviewSubmitSchema
 } from './src/server/validation';
 import bcrypt from 'bcryptjs';
 import ExcelJS from 'exceljs';
@@ -3315,6 +3320,123 @@ async function startServer() {
       res.status(201).json(newMember);
     }
   );
+
+  // --- REVIEWS (guest rates the dishes of a served order) ---
+  //
+  // Submission is scoped to the order the guest actually placed: the body
+  // carries the order id their own browser stored at checkout, and every
+  // rating must reference a dish that is ON that order. That is what stops a
+  // mischievous payload from voting on dishes of orders it never made —
+  // there is no session here to check, and ids alone must not grant that.
+  //
+  // A one-way gate keeps a guest from re-rating an order later: once any
+  // review exists for the order, further submissions are refused. One visit,
+  // one review, enforced by a unique (restaurant, order, dish) index too.
+  app.post('/api/reviews', requirePublicRestaurant, orderLimiter, validateBody(reviewSubmitSchema), (req: Request, res: Response) => {
+    const restaurantId = req.restaurantId as string;
+    const { orderId, ratings, comment } = req.body;
+
+    const row = db.prepare('SELECT data FROM orders WHERE restaurant_id = ? AND id = ?').get(restaurantId, orderId) as
+      | { data: string }
+      | undefined;
+    if (!row) {
+      res.status(404).json({ error: 'Order not found' });
+      return;
+    }
+    const order: Order = JSON.parse(row.data);
+
+    // Only a finished meal can be rated. 'served' is the kitchen's last
+    // staff-set status before payment; 'paid' also counts because a guest
+    // who pays before the waiter marks it served should not lose the form.
+    if (order.status !== 'served' && order.status !== 'paid') {
+      res.status(409).json({ error: 'Order is not finished yet', code: 'ORDER_NOT_SERVED' });
+      return;
+    }
+    if (orderHasReviews(restaurantId, orderId)) {
+      res.status(409).json({ error: 'Order already reviewed', code: 'ALREADY_REVIEWED' });
+      return;
+    }
+
+    // Every rated dish must be one this order actually contained. The order's
+    // JSON is authoritative — the guest's browser is not trusted for content,
+    // only for identity (it is the only holder of the order id).
+    const orderedById = new Map(order.items.map(ci => [ci.menuItem.id, ci.menuItem.name]));
+    for (const r of ratings) {
+      if (!orderedById.has(r.menuItemId)) {
+        res.status(400).json({ error: `Dish ${r.menuItemId} is not part of this order`, code: 'DISH_NOT_IN_ORDER' });
+        return;
+      }
+    }
+
+    const now = new Date().toISOString();
+    let inserted = 0;
+    for (const r of ratings) {
+      const ok = createReview(restaurantId, {
+        orderId,
+        tableNumber: order.tableNumber || null,
+        guestContact: order.customerPhoneOrEmail || '',
+        menuItemId: r.menuItemId,
+        menuItemName: orderedById.get(r.menuItemId) || '',
+        rating: r.rating,
+        comment: comment || ''
+      });
+      if (ok) inserted += 1;
+    }
+    if (inserted === 0) {
+      res.status(409).json({ error: 'Order already reviewed', code: 'ALREADY_REVIEWED' });
+      return;
+    }
+
+    req.log.info({ restaurantId, orderId, ratings: inserted }, 'review submitted');
+
+    // A bad rating is worth waking the owner up for; a good one is not.
+    // Reviews with comments are forwarded too, even at 4-5 stars, because
+    // that is the feedback an owner actually wants to read.
+    const worst = Math.min(...ratings.map(r => r.rating));
+    if (worst <= 3 || comment) {
+      const owningRestaurant = getRestaurantById(restaurantId);
+      if (owningRestaurant?.admin_telegram_chat_id) {
+        const worstDishes = ratings
+          .filter(r => r.rating === worst)
+          .map(r => orderedById.get(r.menuItemId))
+          .join(', ');
+        const stars = '⭐'.repeat(worst) + '▫️'.repeat(5 - worst);
+        const header =
+          order.tableNumber && order.tableNumber > 0
+            ? `📝 Yangi baho — Stol #${order.tableNumber}`
+            : '📝 Yangi baho';
+        const lines = [
+          header,
+          `Order: ${orderId}`,
+          `${stars}${worst <= 2 ? ' 😞' : ''}`,
+          worstDishes ? `Taomlar: ${worstDishes}` : '',
+          comment ? `Izoh: ${comment}` : ''
+        ].filter(Boolean);
+        sendTelegramMessage(owningRestaurant.admin_telegram_chat_id, lines.join('\n')).catch(() => {});
+      }
+    }
+
+    broadcastStaff(restaurantId, 'REVIEWS_UPDATED', { orderId });
+    res.status(201).json({ success: true, saved: inserted });
+  });
+
+  // Admin-side feedback view: the per-dish aggregates for the dashboard.
+  app.get('/api/admin/reviews', requireRole('admin'), (req: Request, res: Response) => {
+    const restaurantId = req.restaurantId as string;
+    const days = Math.max(1, Math.min(365, Number(req.query.days) || 30));
+    res.json({
+      days,
+      summaries: dishRatingSummaries(restaurantId, days),
+      recent: listReviews(restaurantId, 50)
+    });
+  });
+
+  // Admin-side feedback view: the raw recent reviews list (limited) used for the
+  // "latest comments" feed under the averages.
+  app.get('/api/admin/reviews/recent', requireRole('admin'), (req: Request, res: Response) => {
+    const restaurantId = req.restaurantId as string;
+    res.json(listReviews(restaurantId, 50));
+  });
 
   // --- TABLES ENDPOINTS ---
   app.get('/api/tables', requirePublicRestaurant, (req: Request, res: Response) => {

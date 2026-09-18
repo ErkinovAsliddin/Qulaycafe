@@ -20,24 +20,24 @@ export const RestaurantLocationModal: React.FC<RestaurantLocationModalProps> = (
   const hasAnyContactInfo = !!(branding?.contactAddress || branding?.contactPhone || branding?.contactInstagram || branding?.workingHours);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-900/70 backdrop-blur-md animate-fadeIn">
-      <div className="bg-white border border-zinc-200 text-zinc-900 rounded-2xl max-w-sm w-full p-6 shadow-2xl space-y-4 relative">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-900/70 dark:bg-black/80 backdrop-blur-md animate-fadeIn">
+      <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100 rounded-2xl max-w-sm w-full p-6 shadow-2xl space-y-4 relative">
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-zinc-400 hover:text-zinc-900 p-1.5 rounded-full bg-zinc-100 transition-colors"
+          className="absolute top-4 right-4 text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 p-1.5 rounded-full bg-zinc-100 dark:bg-zinc-800 transition-colors"
         >
           <X className="w-4 h-4" />
         </button>
 
         <div className="text-center space-y-1 pt-2">
-          <div className="w-12 h-12 bg-orange-50 text-orange-600 border border-orange-200 rounded-2xl flex items-center justify-center mx-auto">
+          <div className="w-12 h-12 bg-orange-50 dark:bg-orange-500/15 text-orange-600 dark:text-orange-400 border border-orange-200 dark:border-orange-500/20 rounded-2xl flex items-center justify-center mx-auto">
             <MapPin className="w-6 h-6" />
           </div>
-          <h3 className="text-lg font-black text-zinc-900">{displayName}</h3>
+          <h3 className="text-lg font-black text-zinc-900 dark:text-zinc-100">{displayName}</h3>
         </div>
 
         {!hasAnyContactInfo ? (
-          <p className="text-xs text-zinc-400 text-center py-6">
+          <p className="text-xs text-zinc-400 dark:text-zinc-500 text-center py-6">
             Bu restoran hali aloqa ma'lumotlarini kiritmagan.
           </p>
         ) : (
@@ -47,12 +47,12 @@ export const RestaurantLocationModal: React.FC<RestaurantLocationModalProps> = (
                 href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(branding.contactAddress)}`}
                 target="_blank"
                 rel="noreferrer"
-                className="flex items-start space-x-3 bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 rounded-xl p-3 transition-colors"
+                className="flex items-start space-x-3 bg-zinc-50 dark:bg-zinc-800/60 hover:bg-zinc-100 dark:hover:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl p-3 transition-colors"
               >
                 <MapPin className="w-4 h-4 text-orange-500 shrink-0 mt-0.5" />
                 <div className="flex-1">
-                  <p className="text-xs font-bold text-zinc-900">{branding.contactAddress}</p>
-                  <p className="text-[11px] text-zinc-500 flex items-center space-x-1 mt-0.5">
+                  <p className="text-xs font-bold text-zinc-900 dark:text-zinc-100">{branding.contactAddress}</p>
+                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400 flex items-center space-x-1 mt-0.5">
                     <Navigation className="w-3 h-3" />
                     <span>Xaritada ochish</span>
                   </p>
@@ -61,19 +61,19 @@ export const RestaurantLocationModal: React.FC<RestaurantLocationModalProps> = (
             )}
 
             {branding?.workingHours && (
-              <div className="flex items-center space-x-3 bg-zinc-50 border border-zinc-200 rounded-xl p-3">
+              <div className="flex items-center space-x-3 bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 rounded-xl p-3">
                 <Clock className="w-4 h-4 text-orange-500 shrink-0" />
-                <p className="text-xs font-bold text-zinc-900">{branding.workingHours}</p>
+                <p className="text-xs font-bold text-zinc-900 dark:text-zinc-100">{branding.workingHours}</p>
               </div>
             )}
 
             {branding?.contactPhone && (
               <a
                 href={`tel:${branding.contactPhone}`}
-                className="flex items-center space-x-3 bg-zinc-50 hover:bg-orange-50 border border-zinc-200 rounded-xl p-3 transition-colors"
+                className="flex items-center space-x-3 bg-zinc-50 dark:bg-zinc-800/60 hover:bg-orange-50 dark:hover:bg-orange-500/10 border border-zinc-200 dark:border-zinc-700 rounded-xl p-3 transition-colors"
               >
                 <Phone className="w-4 h-4 text-orange-500 shrink-0" />
-                <p className="text-xs font-bold text-zinc-900">{branding.contactPhone}</p>
+                <p className="text-xs font-bold text-zinc-900 dark:text-zinc-100">{branding.contactPhone}</p>
               </a>
             )}
 
@@ -82,10 +82,10 @@ export const RestaurantLocationModal: React.FC<RestaurantLocationModalProps> = (
                 href={`https://instagram.com/${branding.contactInstagram.replace(/^@/, '')}`}
                 target="_blank"
                 rel="noreferrer"
-                className="flex items-center space-x-3 bg-zinc-50 hover:bg-pink-50 border border-zinc-200 rounded-xl p-3 transition-colors"
+                className="flex items-center space-x-3 bg-zinc-50 dark:bg-zinc-800/60 hover:bg-pink-50 dark:hover:bg-pink-500/10 border border-zinc-200 dark:border-zinc-700 rounded-xl p-3 transition-colors"
               >
                 <Instagram className="w-4 h-4 text-pink-600 shrink-0" />
-                <p className="text-xs font-bold text-zinc-900">@{branding.contactInstagram.replace(/^@/, '')}</p>
+                <p className="text-xs font-bold text-zinc-900 dark:text-zinc-100">@{branding.contactInstagram.replace(/^@/, '')}</p>
               </a>
             )}
           </div>

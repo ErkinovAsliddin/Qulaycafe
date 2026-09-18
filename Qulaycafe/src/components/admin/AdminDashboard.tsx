@@ -39,7 +39,9 @@ import {
   Tags,
   ArrowUp,
   ArrowDown,
-  CalendarDays
+  CalendarDays,
+  Star,
+  MessageSquare
 } from 'lucide-react';
 import { QRCodeImage } from '../common/QRCodeImage';
 import { CustomizationEditor, cleanCustomizations } from './CustomizationEditor';
@@ -287,6 +289,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   } | null>(null);
   const [analyticsRangeDays, setAnalyticsRangeDays] = useState<number>(7);
   const [analyticsLoading, setAnalyticsLoading] = useState<boolean>(false);
+  // Guest reviews: per-dish averages + the raw recent comments, fetched when
+  // the analytics tab opens and refreshed by the SSE REVIEWS_UPDATED ping.
+  const [reviewSummaries, setReviewSummaries] = useState<
+    { menuItemId: string; menuItemName: string; averageRating: number; totalReviews: number; ratingCounts: Record<string, number>; lastReviewAt: string }[]
+  >([]);
+  const [recentReviews, setRecentReviews] = useState<
+    { id: string; menuItemName: string; rating: number; comment: string; tableNumber: number | null; createdAt: string }[]
+  >([]);
   const [brandColorInput, setBrandColorInput] = useState<string>(branding?.brandColor || '#f97316');
   const [logoPreview, setLogoPreview] = useState<string | null>(branding?.logoUrl || null);
   const [displayNameInput, setDisplayNameInput] = useState<string>(branding?.restaurantName || '');
@@ -521,6 +531,32 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       .then(data => data && setAnalyticsData(data))
       .finally(() => setAnalyticsLoading(false));
   }, [activeTab, analyticsRangeDays]);
+
+  const fetchReviews = React.useCallback(() => {
+    fetch('/api/admin/reviews?days=30')
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => {
+        if (!data) return;
+        setReviewSummaries(data.summaries || []);
+        setRecentReviews(data.recent || []);
+      })
+      .catch(() => {});
+  }, []);
+
+  React.useEffect(() => {
+    if (activeTab !== 'analytics') return;
+    fetchReviews();
+  }, [activeTab, fetchReviews]);
+
+  // A guest just submitted a review while this dashboard is open: the orders
+  // prop changes with every SSE order update, and reviews arrive within a
+  // minute of an order being served, so a light re-fetch keyed to the newest
+  // order id keeps the list live without a dedicated SSE channel.
+  const newestOrderId = orders[0]?.id || null;
+  React.useEffect(() => {
+    if (activeTab !== 'analytics') return;
+    if (newestOrderId) fetchReviews();
+  }, [newestOrderId, activeTab, fetchReviews]);
 
   // While an invite is still waiting to be opened, refresh in the background so
   // the courier shows up in the list the moment they press Start in Telegram.
@@ -2238,6 +2274,105 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </>
             ) : (
               <p className="text-xs text-zinc-400 py-8 text-center">Ma'lumot topilmadi</p>
+            )}
+          </div>
+
+          {/* GUEST REVIEWS — per-dish star averages + the latest comments */}
+          <div className="bg-white border border-zinc-200 rounded-2xl p-5 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <div className="p-2 bg-amber-50 text-amber-600 rounded-xl border border-amber-100">
+                  <Star className="w-5 h-5" />
+                </div>
+                <h3 className="text-xs font-extrabold text-zinc-700 uppercase">Mijozlar baholari</h3>
+              </div>
+              <button
+                onClick={fetchReviews}
+                className="p-2 text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 rounded-lg transition-colors"
+                title="Yangilash"
+                aria-label="Yangilash"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
+            </div>
+
+            {reviewSummaries.length === 0 ? (
+              <div className="text-center py-8">
+                <MessageSquare className="w-8 h-8 text-zinc-300 mx-auto mb-2" />
+                <p className="text-xs text-zinc-400 font-medium">
+                  Hali baho yo'q — mijoz buyurtmasi tortilgandan keyin yulduzcha bosishi mumkin.
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-1.5">
+                  {reviewSummaries.map(s => {
+                    const low = s.averageRating < 3.5;
+                    return (
+                      <div
+                        key={s.menuItemId}
+                        className={`flex items-center justify-between rounded-xl px-3 py-2.5 border ${
+                          low ? 'bg-rose-50 border-rose-200' : 'bg-zinc-50 border-zinc-200'
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <span className="text-xs font-bold text-zinc-900 block truncate">{s.menuItemName}</span>
+                          <span className="text-[10px] text-zinc-400 font-bold">
+                            {s.totalReviews} ta baho • oxirgi {new Date(s.lastReviewAt).toLocaleDateString('uz-UZ')}
+                          </span>
+                        </div>
+                        <div className="flex items-center space-x-2 shrink-0">
+                          {/* One filled star per whole rating point — cheap and
+                              readable at a glance, no chart library needed. */}
+                          <div className="flex items-center">
+                            {[1, 2, 3, 4, 5].map(star => (
+                              <Star
+                                key={star}
+                                className={`w-3.5 h-3.5 ${
+                                  star <= Math.round(s.averageRating) ? 'text-amber-400 fill-amber-400' : 'text-zinc-300'
+                                }`}
+                              />
+                            ))}
+                          </div>
+                          <span
+                            className={`text-xs font-black w-9 text-right ${
+                              low ? 'text-rose-600' : 'text-zinc-900'
+                            }`}
+                          >
+                            {s.averageRating.toFixed(1)}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {recentReviews.filter(r => r.comment).length > 0 && (
+                  <div className="pt-1">
+                    <h4 className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider mb-2">Oxirgi izohlar</h4>
+                    <div className="space-y-2">
+                      {recentReviews
+                        .filter(r => r.comment)
+                        .slice(0, 5)
+                        .map(r => (
+                          <div key={r.id} className="bg-zinc-50 border border-zinc-200 rounded-xl p-3">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-[11px] font-black text-zinc-900">{r.menuItemName}</span>
+                              <span className="text-[10px] font-bold text-amber-600">
+                                {'⭐'.repeat(r.rating)}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-zinc-600 font-medium">{r.comment}</p>
+                            <p className="text-[10px] text-zinc-400 mt-1">
+                              {r.tableNumber ? `Stol #${r.tableNumber} • ` : ''}
+                              {new Date(r.createdAt).toLocaleString('uz-UZ', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
 

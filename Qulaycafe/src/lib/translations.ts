@@ -171,14 +171,6 @@ export const translations = {
     catDeleteAction: 'Delete',
     catSaveAction: 'Save',
 
-    // Dietary
-    filterAll: 'All Dietary',
-    veg: 'Vegetarian',
-    vegan: 'Vegan',
-    glutenFree: 'Gluten-Free',
-    halal: 'Halal',
-    spicy: 'Spicy',
-    chefChoice: 'Chef Choice',
 
     // Food Card & Order
     addToOrder: '+ Add',
@@ -323,6 +315,32 @@ export const translations = {
     servedStep: '4. Served',
     estMins: 'Est. {mins} mins',
 
+    // Guest reviews (rate a served order)
+    reviewCta: 'Rate your meal',
+    reviewTitle: 'Rate your meal',
+    reviewSubtitle: 'Order #{orderId} — how was everything?',
+    reviewRatePrompt: 'Tap the stars',
+    reviewLabel1: 'Not good at all',
+    reviewLabel2: 'Not great',
+    reviewLabel3: 'Okay',
+    reviewLabel4: 'Good',
+    reviewLabel5: 'Excellent!',
+    reviewCommentLabel: 'Comment (optional)',
+    reviewCommentPlaceholder: 'Tell us what we could do better...',
+    reviewSubmit: 'Send review',
+    reviewSending: 'Sending...',
+    reviewThanks: 'Thank you!',
+    reviewThanksSub: 'Your feedback goes straight to the team.',
+    reviewSubmitError: 'Could not send the review. Please try again.',
+    reviewNotYetError: 'This order has not been served yet.',
+    reviewAnonymityNote: 'You rate as a guest — no name or number is required.',
+
+    // Appearance (dark mode)
+    themeToggleLabel: 'Appearance',
+    themeLight: 'Light',
+    themeDark: 'Dark',
+    themeSystem: 'Auto',
+
     // Scanner
     scanTitle: 'Scan Table QR Code',
     scanDesc: 'Point your camera at the QR code on your table, or select your table number.',
@@ -330,6 +348,11 @@ export const translations = {
     stopCamera: 'Close Camera',
     manualSelect: 'Or Select Table Number',
     selectTable: 'Select Table #{num}',
+    scanning: 'Scanning…',
+    scanDetected: 'Table #{num} detected ✓',
+    scanNotTableQr: "That isn't a table QR code. Scan the code on your table.",
+    scanOtherRestaurant: 'That QR code belongs to another restaurant.',
+    scanUnknownTable: "Table #{num} isn't registered at this restaurant.",
 
     // Loyalty & History
     loyaltyTitle: 'Loyalty & Order History',
@@ -604,14 +627,6 @@ export const translations = {
     catDeleteAction: "O'chirish",
     catSaveAction: 'Saqlash',
 
-    // Dietary
-    filterAll: 'Barcha turlar',
-    veg: 'Vegetarian',
-    vegan: 'Vegan',
-    glutenFree: 'Glyutensiz',
-    halal: 'Halol',
-    spicy: 'Achchiq',
-    chefChoice: 'Oshpaz tavsiyasi',
 
     // Food Card & Order
     addToOrder: '+ Qo‘shish',
@@ -756,6 +771,32 @@ export const translations = {
     servedStep: '4. Tortildi',
     estMins: 'Taxminan {mins} m',
 
+    // Guest reviews (rate a served order)
+    reviewCta: 'Taomni baholash',
+    reviewTitle: 'Taomni baholang',
+    reviewSubtitle: '#{orderId} buyurtma — hammasi qanday bo‘ldi?',
+    reviewRatePrompt: 'Yulduzchalarni bosing',
+    reviewLabel1: 'Umuman yoqmedi',
+    reviewLabel2: 'Yoqmedi',
+    reviewLabel3: 'Oddiy',
+    reviewLabel4: 'Yaxshi',
+    reviewLabel5: 'Ajoyib!',
+    reviewCommentLabel: 'Izoh (majburiy emas)',
+    reviewCommentPlaceholder: 'Nimani yaxshilashimiz mumkin — yozib qoldiring...',
+    reviewSubmit: 'Bahoni yuborish',
+    reviewSending: 'Yuborilmoqda...',
+    reviewThanks: 'Rahmat!',
+    reviewThanksSub: 'Fikringiz jamoamizga yetkazildi.',
+    reviewSubmitError: 'Bahoni yuborib bo‘lmadi. Qaytadan urinib ko‘ring.',
+    reviewNotYetError: 'Bu buyurtma hali tortilmagan.',
+    reviewAnonymityNote: 'Mehmon sifatida baholaysiz — ism yoki raqam shart emas.',
+
+    // Appearance (dark mode)
+    themeToggleLabel: 'Ko‘rinish',
+    themeLight: 'Yorug‘',
+    themeDark: 'Tungi',
+    themeSystem: 'Avto',
+
     // Scanner
     scanTitle: 'Stol QR Kodini Skanerlang',
     scanDesc: 'Stolingizdagi QR kodga kamerani qarating yoki stol raqamini tanlang.',
@@ -763,6 +804,11 @@ export const translations = {
     stopCamera: 'Kamerani o‘chirish',
     manualSelect: 'Yoki Stol Raqamini Tanlang',
     selectTable: 'Stol #{num} ni tanlash',
+    scanning: 'Skanerlanmoqda…',
+    scanDetected: '{num}-stol aniqlandi ✓',
+    scanNotTableQr: 'Bu stol QR kodi emas. Stolingizdagi kodni skanerlang.',
+    scanOtherRestaurant: 'Bu QR kod boshqa restoranga tegishli.',
+    scanUnknownTable: '{num}-stol bu restoranda ro‘yxatga olinmagan.',
 
     // Loyalty & History
     loyaltyTitle: 'Loyallik va Buyurtmalar Tarixi',
@@ -1037,14 +1083,6 @@ export const translations = {
     catDeleteAction: 'Удалить',
     catSaveAction: 'Сохранить',
 
-    // Dietary
-    filterAll: 'Все категории',
-    veg: 'Вегетарианское',
-    vegan: 'Веганское',
-    glutenFree: 'Без глютена',
-    halal: 'Халяль',
-    spicy: 'Острое',
-    chefChoice: 'Выбор шефа',
 
     // Food Card & Order
     addToOrder: '+ Добавить',
@@ -1189,6 +1227,32 @@ export const translations = {
     servedStep: '4. Подано',
     estMins: 'Около {mins} мин',
 
+    // Guest reviews (rate a served order)
+    reviewCta: 'Оценить заказ',
+    reviewTitle: 'Оцените заказ',
+    reviewSubtitle: 'Заказ #{orderId} — как всё было?',
+    reviewRatePrompt: 'Нажмите на звёзды',
+    reviewLabel1: 'Совсем не понравилось',
+    reviewLabel2: 'Не очень',
+    reviewLabel3: 'Нормально',
+    reviewLabel4: 'Хорошо',
+    reviewLabel5: 'Отлично!',
+    reviewCommentLabel: 'Комментарий (необязательно)',
+    reviewCommentPlaceholder: 'Напишите, что нам можно улучшить...',
+    reviewSubmit: 'Отправить отзыв',
+    reviewSending: 'Отправка...',
+    reviewThanks: 'Спасибо!',
+    reviewThanksSub: 'Ваш отзыв уже у команды.',
+    reviewSubmitError: 'Не удалось отправить отзыв. Попробуйте ещё раз.',
+    reviewNotYetError: 'Этот заказ ещё не подан.',
+    reviewAnonymityNote: 'Вы оцениваете как гость — имя или номер не нужны.',
+
+    // Appearance (dark mode)
+    themeToggleLabel: 'Оформление',
+    themeLight: 'Светлая',
+    themeDark: 'Тёмная',
+    themeSystem: 'Авто',
+
     // Scanner
     scanTitle: 'Сканировать QR код стола',
     scanDesc: 'Наведите камеру на QR код вашего стола или выберите номер стола вручную.',
@@ -1196,6 +1260,11 @@ export const translations = {
     stopCamera: 'Закрыть камеру',
     manualSelect: 'Или выберите номер стола',
     selectTable: 'Выбрать Стол #{num}',
+    scanning: 'Сканирование…',
+    scanDetected: 'Стол #{num} распознан ✓',
+    scanNotTableQr: 'Это не QR код стола. Сканируйте код на вашем столе.',
+    scanOtherRestaurant: 'Этот QR код принадлежит другому ресторану.',
+    scanUnknownTable: 'Стол #{num} не зарегистрирован в этом ресторане.',
 
     // Loyalty & History
     loyaltyTitle: 'Лояльность и История Заказов',
