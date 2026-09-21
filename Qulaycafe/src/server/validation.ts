@@ -107,6 +107,15 @@ export const menuItemUpdateSchema = menuItemCreateSchema.partial().extend({
   isAvailable: z.boolean().optional()
 });
 
+// What a dish costs to make, in so'm like everything else money-related here.
+// Stored apart from the dish itself (see menu_item_costs in db.ts) so it can
+// never ride along to a guest, which is also why it is its own endpoint
+// rather than a field on menuItemCreateSchema. 0 clears a previously recorded
+// cost — "not known" rather than "free".
+export const menuItemCostSchema = z.object({
+  costPrice: z.number().finite().min(0).max(1_000_000)
+});
+
 const selectedCustomizationSchema = z.object({
   groupTitle: safeText(120),
   optionName: safeText(120),
@@ -259,6 +268,7 @@ export const waiterCallSchema = z.object({
 });
 
 export const printerSettingsSchema = z.object({
+  printerConnectionType: z.enum(['network', 'usb']).optional(),
   printerIp: z
     .string()
     .trim()
@@ -383,4 +393,3 @@ export const reviewSubmitSchema = z.object({
   ratings: z.array(reviewDishSchema).min(1).max(30),
   comment: z.string().trim().max(500).optional()
 });
-

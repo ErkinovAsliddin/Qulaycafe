@@ -7,7 +7,9 @@ interface OnboardingWizardProps {
   /** Live sections from /api/admin/categories — the wizard must offer the same list the menu uses. */
   categories?: MenuCategory[];
   onAddTable: (tableNumber: number, capacity: number, comment?: string) => Promise<void>;
-  onAddMenuItem: (newItem: Partial<MenuItem>) => Promise<void>;
+  // Resolves to the created dish (or null on failure) so callers that also need
+  // to set a cost price can reach it; the wizard itself ignores the value.
+  onAddMenuItem: (newItem: Partial<MenuItem>) => Promise<MenuItem | null>;
   onUpdateKitchenPin: (newPin: string) => Promise<void>;
   onFinish: () => void;
 }

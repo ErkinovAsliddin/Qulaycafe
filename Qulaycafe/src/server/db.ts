@@ -120,6 +120,23 @@ function createBaseSchema() {
       PRIMARY KEY (restaurant_id, id)
     );
 
+    -- What a dish costs the restaurant to make (tannarx), used for the gross
+    -- profit figures in the admin statistics tab. Deliberately a SEPARATE
+    -- table rather than a field inside menu_items.data: that blob is what
+    -- /api/menu hands to every guest who scans a table QR, and what the
+    -- MENU_UPDATED broadcast pushes to every phone in the room. A cost stored
+    -- there would leak the restaurant's margins to its customers.
+    --
+    -- A dish with no row here simply has no cost recorded; it is left out of
+    -- the cost of goods rather than being counted as free.
+    CREATE TABLE IF NOT EXISTS menu_item_costs (
+      restaurant_id TEXT NOT NULL,
+      menu_item_id TEXT NOT NULL,
+      cost_price REAL NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (restaurant_id, menu_item_id)
+    );
+
     CREATE TABLE IF NOT EXISTS orders (
       restaurant_id TEXT NOT NULL,
       id TEXT NOT NULL,
@@ -1222,6 +1239,7 @@ export function deleteRestaurant(restaurantId: string) {
   const tx = db.transaction(() => {
     const tables = [
       'menu_items',
+      'menu_item_costs',
       'categories',
       'orders',
       'tables',
@@ -2238,6 +2256,48 @@ export function getCategory(restaurantId: string, id: string, includeInactive = 
     .prepare(`${CATEGORY_SELECT} WHERE c.restaurant_id = ? AND c.id = ? AND (? = 1 OR c.is_active = 1)`)
     .get(restaurantId, id, includeInactive ? 1 : 0) as CategoryRow | undefined;
   return row ? rowToCategory(row) : undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Per-dish cost price (tannarx). Kept out of the menu_items blob on purpose —
+// see the table comment in ensureSchema. Everything here is admin-scoped by
+// the routes that call it; nothing in this file is reachable by a guest.
+// ---------------------------------------------------------------------------
+
+/**
+ * Every dish of this restaurant that has a cost recorded, keyed by menu item
+ * id. Dishes the admin never priced are absent rather than 0, so callers can
+ * tell "free" apart from "we don't know" when they total up the cost of goods.
+ */
+export function readMenuItemCosts(restaurantId: string): Record<string, number> {
+  const rows = db
+    .prepare('SELECT menu_item_id, cost_price FROM menu_item_costs WHERE restaurant_id = ?')
+    .all(restaurantId) as { menu_item_id: string; cost_price: number }[];
+  const costs: Record<string, number> = {};
+  for (const row of rows) costs[row.menu_item_id] = row.cost_price;
+  return costs;
+}
+
+/**
+ * Records what a dish costs to make. A cost of 0 means "cleared" — the admin
+ * either doesn't know it or doesn't want it counted — and deletes the row, so
+ * the dish goes back to being unpriced instead of claiming to cost nothing.
+ */
+export function setMenuItemCost(restaurantId: string, menuItemId: string, costPrice: number) {
+  if (!(costPrice > 0)) {
+    deleteMenuItemCost(restaurantId, menuItemId);
+    return;
+  }
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO menu_item_costs (restaurant_id, menu_item_id, cost_price, updated_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(restaurant_id, menu_item_id) DO UPDATE SET cost_price = ?, updated_at = ?`
+  ).run(restaurantId, menuItemId, costPrice, now, costPrice, now);
+}
+
+export function deleteMenuItemCost(restaurantId: string, menuItemId: string) {
+  db.prepare('DELETE FROM menu_item_costs WHERE restaurant_id = ? AND menu_item_id = ?').run(restaurantId, menuItemId);
 }
 
 /** True when the id is a real category of this restaurant (active or not). */

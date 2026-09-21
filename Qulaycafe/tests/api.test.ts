@@ -1469,3 +1469,177 @@ describe('table order visibility (a new guest gets a fresh table)', () => {
     expect(all.map((o: any) => o.id)).toContain(order.id);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Per-dish cost prices and the gross-profit figures they feed.
+//
+// Two things are being pinned down here. First, the cost of a dish is
+// financial data the restaurant does not want its own customers to see, so it
+// lives in its own table and must never appear in /api/menu. Second, the
+// statistics tab counts money COLLECTED — an unpaid bill is reported
+// separately rather than being folded into revenue, which is what the overview
+// cards and the Z-report already do.
+// ---------------------------------------------------------------------------
+describe('dish costs and gross profit', () => {
+  const DISH_PRICE = 50000;
+  const DISH_COST = 20000;
+  // Enough of them that this dish is unambiguously in the top-sellers list
+  // (everything else in this suite is ordered one at a time).
+  const DISH_QTY = 3;
+  let dishId = '';
+  let dish: any = null;
+
+  const getAnalytics = () =>
+    fetch(`${BASE_URL}/api/admin/analytics?days=7`, { headers: { Cookie: adminCookie } }).then(r => r.json());
+
+  /** One bill for the costed dish, left unpaid unless the caller settles it. */
+  const placeOrder = async () => {
+    const lineTotal = DISH_PRICE * DISH_QTY;
+    const res = await fetch(`${BASE_URL}/api/orders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tableNumber: 71,
+        items: [
+          {
+            cartItemId: 'c1',
+            // The whole dish, the way the customer app sends it — the
+            // analytics label a sold line from this snapshot, not from the id.
+            menuItem: dish,
+            quantity: DISH_QTY,
+            selectedCustomizations: [],
+            itemTotal: lineTotal
+          }
+        ],
+        subtotal: lineTotal,
+        tax: 0,
+        serviceCharge: 0,
+        totalAmount: lineTotal
+      })
+    });
+    expect(res.status).toBe(201);
+    return res.json();
+  };
+
+  it('keeps a cost price admin-only and out of the guest menu', async () => {
+    const createRes = await fetch(`${BASE_URL}/api/menu`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({
+        nameUz: 'Margin Test Dish',
+        nameRu: 'Margin Test Dish',
+        nameEn: 'Margin Test Dish',
+        price: DISH_PRICE,
+        category: 'ikkinchi_taom'
+      })
+    });
+    expect(createRes.status).toBe(201);
+    dish = await createRes.json();
+    dishId = dish.id;
+
+    // No session: neither reading nor writing a cost is allowed.
+    expect((await fetch(`${BASE_URL}/api/admin/menu-costs`)).status).toBe(401);
+    expect(
+      (
+        await fetch(`${BASE_URL}/api/admin/menu-costs/${dishId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ costPrice: 1 })
+        })
+      ).status
+    ).toBe(401);
+
+    const putRes = await fetch(`${BASE_URL}/api/admin/menu-costs/${dishId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({ costPrice: DISH_COST })
+    });
+    expect(putRes.status).toBe(200);
+    expect((await putRes.json()).costPrice).toBe(DISH_COST);
+
+    const costs = await fetch(`${BASE_URL}/api/admin/menu-costs`, { headers: { Cookie: adminCookie } }).then(r => r.json());
+    expect(costs[dishId]).toBe(DISH_COST);
+
+    // The whole reason the cost is a separate table: /api/menu is what every
+    // guest who scans a table QR loads, and what the MENU_UPDATED broadcast
+    // pushes to their phones.
+    const guestMenu = await fetch(`${BASE_URL}/api/menu`).then(r => r.json());
+    expect(guestMenu.map((i: any) => i.id)).toContain(dishId);
+    expect(JSON.stringify(guestMenu)).not.toContain('costPrice');
+
+    // A cost can be cleared again by sending 0, which drops the record rather
+    // than claiming the dish is free...
+    const clearRes = await fetch(`${BASE_URL}/api/admin/menu-costs/${dishId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({ costPrice: 0 })
+    });
+    expect(clearRes.status).toBe(200);
+    expect((await clearRes.json()).costPrice).toBeNull();
+    expect(
+      (await fetch(`${BASE_URL}/api/admin/menu-costs`, { headers: { Cookie: adminCookie } }).then(r => r.json()))[dishId]
+    ).toBeUndefined();
+
+    // ...and then set again for the profit assertions below.
+    await fetch(`${BASE_URL}/api/admin/menu-costs/${dishId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({ costPrice: DISH_COST })
+    });
+  });
+
+  it('counts only collected revenue, and prices the dishes on those bills', async () => {
+    const before = await getAnalytics();
+
+    const settled = await placeOrder();
+    // Tax and the service fee are recomputed server-side from the restaurant's
+    // own settings, so the real bill total is the server's number, not the one
+    // this payload guessed.
+    const billTotal: number = settled.totalAmount;
+    expect(billTotal).toBeGreaterThan(0);
+    const settledRes = await fetch(`${BASE_URL}/api/orders/${settled.id}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
+      body: JSON.stringify({ status: 'paid', paymentStatus: 'paid' })
+    });
+    expect(settledRes.status).toBe(200);
+    await placeOrder(); // deliberately left open
+
+    const after = await getAnalytics();
+
+    // Deliberately deltas, not totals: earlier tests in this file left paid and
+    // unpaid bills of their own in the same seven-day window.
+    expect(after.totalRevenue - before.totalRevenue).toBe(billTotal);
+    expect(after.unpaidRevenue - before.unpaidRevenue).toBe(billTotal);
+    expect(after.paidOrders - before.paidOrders).toBe(1);
+    expect(after.unpaidOrders - before.unpaidOrders).toBe(1);
+
+    // Gross profit = collected revenue minus what those dishes cost to make;
+    // the open bill contributes to neither side.
+    const soldCost = DISH_COST * DISH_QTY;
+    expect(after.costOfGoodsSold - before.costOfGoodsSold).toBe(soldCost);
+    expect(after.grossProfit - before.grossProfit).toBe(billTotal - soldCost);
+    // Both bills are for a dish whose cost IS recorded, and the open one is not
+    // counted at all, so nothing here is left uncosted.
+    expect(after.unpricedRevenue - before.unpricedRevenue).toBe(0);
+
+    const sold = after.topDishes.find((d: any) => d.name === 'Margin Test Dish');
+    expect(sold).toBeTruthy();
+    expect(sold.quantity).toBe(DISH_QTY); // the open bill is not counted
+    expect(sold.revenue).toBe(DISH_PRICE * DISH_QTY);
+    expect(sold.cost).toBe(soldCost);
+    expect(sold.profit).toBe(DISH_PRICE * DISH_QTY - soldCost);
+    expect(sold.marginPercent).toBe(60);
+
+    // Softer than it looks: a dish nobody has priced reports no margin at all
+    // rather than a flattering 100%.
+    const uncosted = after.topDishes.find((d: any) => d.cost === null);
+    if (uncosted) expect(uncosted.marginPercent).toBeNull();
+
+    // The bill was placed today in Tashkent, so it has to land on today's
+    // column of the chart — not on the UTC day, which drifts ahead of the
+    // restaurant's evening service.
+    const restaurantToday = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
+    expect(after.revenueTimeline.map((t: any) => t.date)).toContain(restaurantToday);
+  });
+});

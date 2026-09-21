@@ -98,6 +98,7 @@ const orderDestinationLabel = (order: Order) =>
 interface OrderRowActionsProps {
   order: Order;
   onPrintLocal: (order: Order) => void;
+  onPrintThermal: (order: Order) => void;
   onMarkPaid: (order: Order) => void;
   onDelete: (order: Order) => void;
   /** True on the phone layout, where a row of tiny buttons is unusable: they
@@ -108,6 +109,7 @@ interface OrderRowActionsProps {
 const OrderRowActions: React.FC<OrderRowActionsProps> = ({
   order,
   onPrintLocal,
+  onPrintThermal,
   onMarkPaid,
   onDelete,
   stacked = false
@@ -125,11 +127,7 @@ const OrderRowActions: React.FC<OrderRowActionsProps> = ({
         🧾 Chek
       </button>
       <button
-        onClick={async () => {
-          const res = await fetch(`/api/admin/print-receipt/${order.id}`, { method: 'POST' });
-          const data = await res.json().catch(() => ({}));
-          if (!res.ok) alert(data.error || "Printerga chop etib bo'lmadi.");
-        }}
+        onClick={() => onPrintThermal(order)}
         className={`${base} bg-zinc-100 hover:bg-zinc-200 text-zinc-700 border-zinc-200`}
       >
         🖨️ Termal
@@ -150,6 +148,107 @@ const OrderRowActions: React.FC<OrderRowActionsProps> = ({
       </button>
     </div>
   );
+};
+
+type PrinterConnectionType = 'network' | 'usb';
+
+// Uzbekistan restaurants run on UTC+5 with no DST. Shift timestamps before
+// slicing YYYY-MM-DD so "today" does not follow the browser/server's UTC day.
+const RESTAURANT_UTC_OFFSET_HOURS = 5;
+
+const restaurantLocalDateIso = (date: Date) =>
+  new Date(date.getTime() + RESTAURANT_UTC_OFFSET_HOURS * 3600_000).toISOString().slice(0, 10);
+
+const orderRestaurantDateIso = (order: Order) => {
+  const created = new Date(order.createdAt);
+  if (Number.isNaN(created.getTime())) return restaurantLocalDateIso(new Date());
+  return restaurantLocalDateIso(created);
+};
+
+type UsbEndpointDescriptor = {
+  endpointNumber: number;
+  direction: 'in' | 'out';
+  type: 'bulk' | 'interrupt' | 'isochronous';
+};
+
+type UsbAlternateInterface = {
+  interfaceClass: number;
+  alternateSetting: number;
+  endpoints: UsbEndpointDescriptor[];
+};
+
+type UsbInterface = {
+  interfaceNumber: number;
+  alternates: UsbAlternateInterface[];
+  claimed: boolean;
+};
+
+type UsbConfiguration = {
+  interfaces: UsbInterface[];
+};
+
+type UsbDevice = {
+  opened: boolean;
+  configuration: UsbConfiguration | null;
+  open: () => Promise<void>;
+  close: () => Promise<void>;
+  selectConfiguration: (configurationValue: number) => Promise<void>;
+  claimInterface: (interfaceNumber: number) => Promise<void>;
+  selectAlternateInterface: (interfaceNumber: number, alternateSetting: number) => Promise<void>;
+  transferOut: (endpointNumber: number, data: BufferSource) => Promise<unknown>;
+};
+
+type UsbNavigator = Navigator & {
+  usb?: {
+    requestDevice: (options: { filters: Record<string, never>[] }) => Promise<UsbDevice>;
+  };
+};
+
+const decodeBase64Bytes = (base64: string) => {
+  const binary = window.atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+};
+
+const findUsbOutEndpoint = (device: UsbDevice) => {
+  const configuration = device.configuration;
+  if (!configuration) return null;
+
+  for (const iface of configuration.interfaces) {
+    for (const alternate of iface.alternates) {
+      const endpoint = alternate.endpoints.find(
+        ep => ep.direction === 'out' && (ep.type === 'bulk' || ep.type === 'interrupt')
+      );
+      if (endpoint) return { iface, alternate, endpoint };
+    }
+  }
+  return null;
+};
+
+const printEscposOverUsb = async (bytes: Uint8Array) => {
+  if (!window.isSecureContext) {
+    throw new Error('USB printer faqat HTTPS yoki localhost orqali ishlaydi.');
+  }
+  const usb = (navigator as UsbNavigator).usb;
+  if (!usb) {
+    throw new Error("Bu brauzer WebUSB ni qo'llab-quvvatlamaydi. Chrome yoki Edge ishlating.");
+  }
+
+  const device = await usb.requestDevice({ filters: [] });
+  if (!device.opened) await device.open();
+  if (!device.configuration) await device.selectConfiguration(1);
+
+  const target = findUsbOutEndpoint(device);
+  if (!target) {
+    await device.close().catch(() => {});
+    throw new Error('USB printer uchun yozish endpointi topilmadi.');
+  }
+
+  if (!target.iface.claimed) await device.claimInterface(target.iface.interfaceNumber);
+  await device.selectAlternateInterface(target.iface.interfaceNumber, target.alternate.alternateSetting);
+  await device.transferOut(target.endpoint.endpointNumber, bytes);
+  await device.close().catch(() => {});
 };
 
 interface AdminDashboardProps {
@@ -209,8 +308,18 @@ interface AdminDashboardProps {
   onUpdateAdminPassword: (newPass: string) => void;
   onUpdateKitchenPin: (newPin: string) => void;
   onUpdateMenuItem: (item: MenuItem) => void;
-  onAddMenuItem: (item: Partial<MenuItem>) => void;
+  /**
+   * Resolves to the dish the server created (with its real id) so the form can
+   * attach a cost price to it without the caller having to guess the id.
+   */
+  onAddMenuItem: (item: Partial<MenuItem>) => Promise<MenuItem | null>;
   onDeleteMenuItem: (id: string) => void;
+  /**
+   * What a dish costs to make, in so'm — the input behind the profit figures in
+   * the statistics tab. Stored server-side apart from the dish itself, so it is
+   * never sent to a guest. 0 clears a previously recorded cost.
+   */
+  onUpdateMenuItemCost: (itemId: string, costPrice: number) => Promise<void>;
   onAddTable?: (tableNumber: number, capacity: number, comment?: string) => void;
   onDeleteTable?: (tableNumber: number) => void;
   onUpdateOrderStatus: (orderId: string, status: OrderStatus, paymentStatus?: 'paid' | 'unpaid') => void;
@@ -255,6 +364,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onUpdateMenuItem,
   onAddMenuItem,
   onDeleteMenuItem,
+  onUpdateMenuItemCost,
   onAddTable,
   onDeleteTable,
   onUpdateOrderStatus,
@@ -274,18 +384,37 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [activeTab, setActiveTab] = useState<'overview' | 'tables' | 'inventory' | 'categories' | 'orders' | 'qr' | 'analytics' | 'branding' | 'delivery' | 'reservations' | 'security'>('overview');
   const [selectedQRTable, setSelectedQRTable] = useState<number>(1);
   const [isMoreSheetOpen, setIsMoreSheetOpen] = useState<boolean>(false);
+  // Everything money-shaped here counts PAID orders only ("collected"), which
+  // is what the overview cards use too; bills still open are reported apart.
   const [analyticsData, setAnalyticsData] = useState<{
     rangeDays: number;
     totalRevenue: number;
     totalOrders: number;
+    paidOrders: number;
+    unpaidOrders: number;
+    unpaidRevenue: number;
     averageOrderValue: number;
     revenueChangePercent: number | null;
     previousPeriodRevenue: number;
     revenueTimeline: { date: string; revenue: number }[];
-    topDishes: { name: string; quantity: number; revenue: number }[];
+    // cost/marginPercent are null for a dish whose cost price was never set.
+    topDishes: {
+      name: string;
+      quantity: number;
+      revenue: number;
+      cost: number | null;
+      profit: number;
+      marginPercent: number | null;
+    }[];
     categoryBreakdown: { category: string; revenue: number }[];
     paymentMethodBreakdown: { method: string; count: number; revenue: number }[];
     orderTypeBreakdown: { dineIn: number; delivery: number; pickup?: number };
+    costOfGoodsSold: number;
+    grossProfit: number;
+    grossMarginPercent: number | null;
+    unpricedRevenue: number;
+    pricedDishCount: number;
+    unpricedDishCount: number;
   } | null>(null);
   const [analyticsRangeDays, setAnalyticsRangeDays] = useState<number>(7);
   const [analyticsLoading, setAnalyticsLoading] = useState<boolean>(false);
@@ -325,7 +454,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [courierInviteBusy, setCourierInviteBusy] = useState(false);
   const [courierInviteError, setCourierInviteError] = useState<string | null>(null);
   const [copiedInviteToken, setCopiedInviteToken] = useState<string | null>(null);
-  const [zReport, setZReport] = useState<{ date: string; cashTotal: number; cardTotal: number; otherTotal: number; orderCount: number; totalRevenue: number; closure: any } | null>(null);
+  const [zReport, setZReport] = useState<{ date: string; cashTotal: number; cardTotal: number; otherTotal: number; orderCount: number; unpaidCount: number; unpaidTotal: number; totalRevenue: number; closure: any } | null>(null);
+  const [printerConnectionType, setPrinterConnectionType] = useState<PrinterConnectionType>('network');
   const [printerIp, setPrinterIp] = useState<string>('');
   const [printerPort, setPrinterPort] = useState<number>(9100);
   const [printerSaving, setPrinterSaving] = useState(false);
@@ -516,6 +646,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       .then(r => (r.ok ? r.json() : null))
       .then(data => {
         if (data) {
+          setPrinterConnectionType(data.printerConnectionType === 'usb' ? 'usb' : 'network');
           setPrinterIp(data.printerIp || '');
           setPrinterPort(data.printerPort || 9100);
         }
@@ -706,6 +837,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     reader.readAsDataURL(file);
   };
 
+  // ---------------------------------------------------------------------------
+  // DISH COST PRICES (tannarx)
+  //
+  // Loaded from their own admin endpoint rather than shipped with the menu,
+  // because /api/menu is what guests see. Used both to prefill the forms here
+  // and as the input to the gross-profit figures on the statistics tab.
+  // ---------------------------------------------------------------------------
+  const [menuCosts, setMenuCosts] = useState<Record<string, number>>({});
+  const [newDishCost, setNewDishCost] = useState<string>('');
+  const [editingCost, setEditingCost] = useState<string>('');
+
+  const fetchMenuCosts = React.useCallback(() => {
+    fetch('/api/admin/menu-costs')
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => data && setMenuCosts(data))
+      .catch(() => {});
+  }, []);
+
+  React.useEffect(() => {
+    // Only the inventory tab shows cost inputs, and a fresh read is cheap, so
+    // the map is refetched each time the admin comes back to it.
+    if (activeTab !== 'inventory') return;
+    fetchMenuCosts();
+  }, [activeTab, fetchMenuCosts]);
+
   // New Dish Form State
   const [newDishNameUz, setNewDishNameUz] = useState<string>('');
   const [newDishNameRu, setNewDishNameRu] = useState<string>('');
@@ -864,9 +1020,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setCategoryError(result.error || t.catDeleteHasDishes.replace('{count}', String(result.dishCount ?? 0)));
   };
 
-  // Analytics Metrics
-  const totalRevenue = orders.reduce((acc, o) => acc + (o.paymentStatus === 'paid' ? o.totalAmount : 0), 0);
-  const totalOrdersCount = orders.length;
+  // Overview metrics are for the restaurant's current local day, not all
+  // orders currently loaded in the admin registry.
+  const todayIso = restaurantLocalDateIso(new Date());
+  const todayOrders = orders.filter(o => o.status !== 'cancelled' && orderRestaurantDateIso(o) === todayIso);
+  const todayPaidOrders = todayOrders.filter(o => o.paymentStatus === 'paid');
+  const todayRevenue = todayPaidOrders.reduce((acc, o) => acc + o.totalAmount, 0);
+  const todayOrdersCount = todayOrders.length;
   // Opens a small print-only window with a clean receipt layout and
   // triggers the browser's native print dialog — the person can "print"
   // to a real receipt printer or choose "Save as PDF", covering both
@@ -916,8 +1076,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     win.document.close();
   };
 
+  const printThermalReceipt = async (order: Order) => {
+    try {
+      if (printerConnectionType === 'usb') {
+        const res = await fetch(`/api/admin/receipt-bytes/${order.id}`);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Chek ma'lumotlarini olish imkoni bo'lmadi.");
+        await printEscposOverUsb(decodeBase64Bytes(data.data));
+        return;
+      }
+
+      const res = await fetch(`/api/admin/print-receipt/${order.id}`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Printerga chop etib bo'lmadi.");
+    } catch (err: any) {
+      window.alert(err?.message || "Printerga chop etib bo'lmadi.");
+    }
+  };
+
   const activeTablesCount = tables.filter(t => t.status !== 'available').length;
-  const avgOrderValue = totalOrdersCount > 0 ? totalRevenue / totalOrdersCount : 0;
+  const avgOrderValue = todayOrdersCount > 0 ? todayRevenue / todayOrdersCount : 0;
 
   const handleToggleAvailability = (item: MenuItem) => {
     onUpdateMenuItem({
@@ -926,11 +1104,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     });
   };
 
-  const handleCreateDish = (e: React.FormEvent) => {
+  const handleCreateDish = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newDishNameUz.trim()) return;
 
-    onAddMenuItem({
+    const created = await onAddMenuItem({
       nameUz: newDishNameUz,
       nameRu: newDishNameRu || newDishNameUz,
       nameEn: newDishNameEn || newDishNameUz,
@@ -946,6 +1124,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       customizations: cleanCustomizations(newDishCustomizations)
     });
 
+    // The cost is a separate record (see onUpdateMenuItemCost), so it can only
+    // be attached once the server has told us the new dish's id.
+    const cost = parseFloat(newDishCost);
+    if (created && Number.isFinite(cost) && cost > 0) {
+      await onUpdateMenuItemCost(created.id, cost);
+      setMenuCosts(prev => ({ ...prev, [created.id]: cost }));
+    }
+
     setShowAddDishModal(false);
     setNewDishNameUz('');
     setNewDishNameRu('');
@@ -953,14 +1139,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setNewDishDescUz('');
     setNewDishDescRu('');
     setNewDishDescEn('');
+    setNewDishCost('');
     setNewDishCustomizations([]);
   };
 
-  const handleSaveEdit = (e: React.FormEvent) => {
+  const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingItem) return;
     onUpdateMenuItem({ ...editingItem, customizations: cleanCustomizations(editingItem.customizations || []) });
+    // Blank means "leave it alone"; a typed 0 means "clear the cost" — both are
+    // already the server's rule, so the raw value is passed straight through.
+    if (editingCost.trim() !== '') {
+      const cost = parseFloat(editingCost);
+      if (Number.isFinite(cost)) await onUpdateMenuItemCost(editingItem.id, cost);
+    }
     setEditingItem(null);
+  };
+
+  /** Opens the edit modal with the dish's recorded cost already filled in. */
+  const startEditDish = (item: MenuItem) => {
+    setEditingItem(item);
+    const known = menuCosts[item.id];
+    setEditingCost(known && known > 0 ? String(known) : '');
   };
 
   const handleConfirmDelete = () => {
@@ -1154,7 +1354,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">{t.todayRevenue}</span>
                 <DollarSign className="w-5 h-5" />
               </div>
-              <div className="text-3xl font-black text-zinc-900 mt-2">{formatSom(totalRevenue)}</div>
+              <div className="text-3xl font-black text-zinc-900 mt-2">{formatSom(todayRevenue)}</div>
               <p className="text-[11px] text-green-600 mt-1 font-semibold">{t.paidOrdersTotal}</p>
             </div>
 
@@ -1172,7 +1372,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">{t.totalOrders}</span>
                 <ShoppingBag className="w-5 h-5" />
               </div>
-              <div className="text-3xl font-black text-zinc-900 mt-2">{totalOrdersCount}</div>
+              <div className="text-3xl font-black text-zinc-900 mt-2">{todayOrdersCount}</div>
               <p className="text-[11px] text-zinc-500 mt-1 font-medium">{t.submittedToday}</p>
             </div>
 
@@ -1505,7 +1705,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                     <td className="p-3 text-right space-x-2">
                       <button
-                        onClick={() => setEditingItem(item)}
+                        onClick={() => startEditDish(item)}
                         className="p-1.5 bg-zinc-100 hover:bg-orange-50 text-zinc-700 hover:text-orange-600 rounded-lg text-xs font-bold border border-zinc-200 transition-colors"
                         title={t.editDish}
                       >
@@ -1859,6 +2059,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       order={ord}
                       stacked
                       onPrintLocal={printReceipt}
+                      onPrintThermal={printThermalReceipt}
                       onMarkPaid={o => onUpdateOrderStatus(o.id, o.status, 'paid')}
                       onDelete={o => {
                         if (window.confirm(`Delete order #${o.id}? This cannot be undone.`)) onDeleteOrder(o.id);
@@ -1907,6 +2108,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           <OrderRowActions
                             order={ord}
                             onPrintLocal={printReceipt}
+                            onPrintThermal={printThermalReceipt}
                             onMarkPaid={o => onUpdateOrderStatus(o.id, o.status, 'paid')}
                             onDelete={o => {
                               if (window.confirm(`Delete order #${o.id}? This cannot be undone.`)) onDeleteOrder(o.id);
@@ -2175,11 +2377,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4">
-                    <div className="text-[11px] text-zinc-500 font-bold uppercase">Jami daromad</div>
+                    <div className="text-[11px] text-zinc-500 font-bold uppercase">Jami daromad (to'langan)</div>
                     <div className="text-xl font-black text-zinc-900 mt-1">{formatSom(analyticsData.totalRevenue)}</div>
                     {analyticsData.revenueChangePercent !== null && (
                       <div className={`text-[11px] font-bold mt-1 ${analyticsData.revenueChangePercent >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
                         {analyticsData.revenueChangePercent >= 0 ? '▲' : '▼'} {Math.abs(analyticsData.revenueChangePercent)}% oldingi davrga nisbatan
+                      </div>
+                    )}
+                    {/* Unsettled bills are deliberately NOT in the figure above —
+                        the overview cards and the Z-report don't count them
+                        either — so they are surfaced here instead of vanishing. */}
+                    {analyticsData.unpaidRevenue > 0 && (
+                      <div className="text-[11px] font-bold text-amber-700 mt-1">
+                        ⏳ {formatSom(analyticsData.unpaidRevenue)} hali to'lanmagan ({analyticsData.unpaidOrders} ta)
                       </div>
                     )}
                   </div>
@@ -2193,6 +2403,47 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4">
                     <div className="text-[11px] text-zinc-500 font-bold uppercase">O'rtacha chek</div>
                     <div className="text-xl font-black text-zinc-900 mt-1">{formatSom(analyticsData.averageOrderValue)}</div>
+                    <div className="text-[11px] text-zinc-400 mt-1">{analyticsData.paidOrders} ta to'langan chek bo'yicha</div>
+                  </div>
+                </div>
+
+                {/* GROSS PROFIT — collected revenue minus what the dishes on
+                    those bills cost to make, from the per-dish cost prices in
+                    the menu forms. Rent/wages/tax are not included. */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+                    <div className="text-[11px] text-emerald-700 font-bold uppercase">Yalpi foyda</div>
+                    <div className="text-xl font-black text-emerald-900 mt-1">{formatSom(analyticsData.grossProfit)}</div>
+                    <div className="text-[11px] text-emerald-700/80 mt-1">daromad − tannarx</div>
+                  </div>
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+                    <div className="text-[11px] text-emerald-700 font-bold uppercase">Foyda marjasi</div>
+                    <div className="text-xl font-black text-emerald-900 mt-1">
+                      {analyticsData.grossMarginPercent === null ? '—' : `${analyticsData.grossMarginPercent}%`}
+                    </div>
+                    <div className="text-[11px] text-emerald-700/80 mt-1">
+                      tannarx daromadning{' '}
+                      {analyticsData.totalRevenue > 0
+                        ? `${Math.round((analyticsData.costOfGoodsSold / analyticsData.totalRevenue) * 100)}%`
+                        : '—'}
+                    </div>
+                  </div>
+                  <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4">
+                    <div className="text-[11px] text-zinc-500 font-bold uppercase">Tannarx (COGS)</div>
+                    <div className="text-xl font-black text-zinc-900 mt-1">{formatSom(analyticsData.costOfGoodsSold)}</div>
+                    {/* Honesty valve: a margin built only from the dishes that
+                        HAVE a cost price would look better than it is, so the
+                        revenue it couldn't account for is spelled out. */}
+                    {analyticsData.unpricedDishCount > 0 ? (
+                      <div className="text-[11px] text-amber-700 mt-1">
+                        ⚠️ {analyticsData.unpricedDishCount} ta taomning tannarxi kiritilmagan
+                        {analyticsData.unpricedRevenue > 0 && ` (${formatSom(analyticsData.unpricedRevenue)} daromad hisobga olinmadi)`}
+                      </div>
+                    ) : (
+                      <div className="text-[11px] text-zinc-400 mt-1">
+                        {analyticsData.pricedDishCount} ta taom tannarxi asosida
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -2263,8 +2514,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             <span className="text-xs font-bold text-zinc-900">{dish.name}</span>
                           </div>
                           <div className="text-right">
-                            <span className="text-xs font-black text-orange-600">{dish.quantity}x</span>
-                            <span className="text-[10px] text-zinc-400 ml-2">{formatSom(dish.revenue)}</span>
+                            <div>
+                              <span className="text-xs font-black text-orange-600">{dish.quantity}x</span>
+                              <span className="text-[10px] text-zinc-400 ml-2">{formatSom(dish.revenue)}</span>
+                            </div>
+                            {/* A dish whose cost price was never filled in shows
+                                "—" rather than a flattering 100% margin. */}
+                            {dish.marginPercent === null ? (
+                              <div className="text-[10px] text-zinc-400">tannarx kiritilmagan</div>
+                            ) : (
+                              <div
+                                className={`text-[10px] font-bold ${
+                                  dish.marginPercent < 0 ? 'text-rose-600' : 'text-emerald-600'
+                                }`}
+                              >
+                                foyda {formatSom(dish.profit)} • {dish.marginPercent}%
+                              </div>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -2396,6 +2662,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </div>
                 </div>
                 <p className="text-[11px] text-zinc-400">{zReport.date} • {zReport.orderCount} ta buyurtma</p>
+                {/* Same rule as everywhere else: an open tab is not money in
+                    the drawer, so it is listed next to the totals instead of
+                    being counted inside them. */}
+                {zReport.unpaidCount > 0 && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-2.5 text-[11px] text-amber-800 font-bold">
+                    ⏳ {zReport.unpaidCount} ta chek hali to'lanmagan — {formatSom(zReport.unpaidTotal)} yuqoridagi summalarga kirmagan
+                  </div>
+                )}
                 {zReport.closure ? (
                   <div className="bg-green-50 border border-green-200 rounded-xl p-2.5 text-[11px] text-green-800 font-bold">
                     ✅ Yopilgan: {new Date(zReport.closure.closedAt).toLocaleString('uz-UZ')}
@@ -3200,11 +3474,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <div className="bg-zinc-50/80 border border-zinc-200 rounded-2xl p-5 space-y-3">
             <div className="flex items-center space-x-2 text-zinc-900 font-extrabold text-sm border-b border-zinc-200/80 pb-2.5">
               <Printer className="w-4 h-4 text-orange-500" />
-              <span>Termal printer (tarmoq orqali)</span>
+              <span>Termal printer</span>
             </div>
             <p className="text-xs text-zinc-500">
-              Printeringizning IP manzilini kiriting — buyurtmalar bo'limidan bevosita shu printerga chek chop etishingiz mumkin bo'ladi.
+              LAN printer IP orqali ishlaydi. USB printer esa shu admin panel ochilgan laptopga ulangan bo'lishi kerak.
             </p>
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                { value: 'network', label: 'LAN / Wi-Fi', hint: 'IP manzil orqali' },
+                { value: 'usb', label: 'USB', hint: 'Laptopga ulangan printer' }
+              ] as const).map(option => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setPrinterConnectionType(option.value)}
+                  className={`text-left border rounded-xl px-3 py-2 transition-colors ${
+                    printerConnectionType === option.value
+                      ? 'bg-orange-50 border-orange-300 text-orange-900'
+                      : 'bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-50'
+                  }`}
+                >
+                  <span className="block text-xs font-black">{option.label}</span>
+                  <span className="block text-[10px] font-bold text-zinc-500 mt-0.5">{option.hint}</span>
+                </button>
+              ))}
+            </div>
             <div className="grid grid-cols-3 gap-2">
               <div className="col-span-2">
                 <label className="block text-[11px] font-bold text-zinc-600 mb-1">Printer IP</label>
@@ -3213,6 +3507,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   value={printerIp}
                   onChange={(e) => setPrinterIp(e.target.value)}
                   placeholder="192.168.1.50"
+                  disabled={printerConnectionType === 'usb'}
                   className="w-full bg-white border border-zinc-200 focus:border-orange-500 rounded-xl px-3 py-2 text-xs text-zinc-900 outline-none"
                 />
               </div>
@@ -3222,10 +3517,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   type="number"
                   value={printerPort}
                   onChange={(e) => setPrinterPort(Number(e.target.value))}
+                  disabled={printerConnectionType === 'usb'}
                   className="w-full bg-white border border-zinc-200 focus:border-orange-500 rounded-xl px-3 py-2 text-xs text-zinc-900 outline-none"
                 />
               </div>
             </div>
+            {printerConnectionType === 'usb' && (
+              <p className="text-[11px] font-bold text-zinc-500">
+                USB chop etish Chrome yoki Edge brauzerida, HTTPS yoki localhost orqali ishlaydi. Agar printer USB qurilma sifatida
+                ko'rinmasa, yuqoridagi 🧾 Chek tugmasi orqali OS print dialogidan foydalaning.
+              </p>
+            )}
             <button
               onClick={async () => {
                 setPrinterSaving(true);
@@ -3234,9 +3536,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   const res = await fetch('/api/admin/printer-settings', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ printerIp: printerIp || undefined, printerPort })
+                    body: JSON.stringify({ printerConnectionType, printerIp: printerIp || undefined, printerPort })
                   });
-                  setPrinterMsg(res.ok ? '✅ Saqlandi!' : '❌ Xatolik yuz berdi.');
+                  setPrinterMsg(res.ok ? 'Saqlandi!' : 'Xatolik yuz berdi.');
                 } finally {
                   setPrinterSaving(false);
                 }
@@ -3331,6 +3633,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     ))}
                   </select>
                 </div>
+              </div>
+
+              {/* What one portion costs to make. Deliberately not part of the
+                  dish record: it drives the profit figures in the statistics
+                  tab and must never reach a guest's menu. */}
+              <div>
+                <label className="block text-zinc-600 font-medium mb-1">Tannarx — 1 porsiya (so'm)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="500"
+                  value={newDishCost}
+                  onChange={e => setNewDishCost(e.target.value)}
+                  placeholder="ixtiyoriy"
+                  className="w-full bg-zinc-50 border border-zinc-200 rounded-xl p-2.5 text-zinc-900 focus:border-orange-500 focus:outline-none"
+                />
+                <p className="text-[10px] text-zinc-400 mt-1">
+                  Statistika bo'limidagi yalpi foyda shu narx asosida hisoblanadi. Bo'sh qoldirsangiz, taom foyda hisobiga kirmaydi.
+                </p>
               </div>
 
               {/* DIRECT IMAGE UPLOAD & PRESETS */}
@@ -3534,6 +3855,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     ))}
                   </select>
                 </div>
+              </div>
+
+              {/* Cost price for one portion — the statistics tab's profit
+                  figures come from this, and it is stored apart from the dish
+                  so no guest-facing response can carry it. Blank leaves the
+                  recorded cost alone; 0 clears it. */}
+              <div>
+                <label className="block text-zinc-600 font-medium mb-1">Tannarx — 1 porsiya (so'm)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="500"
+                  value={editingCost}
+                  onChange={e => setEditingCost(e.target.value)}
+                  placeholder={menuCosts[editingItem.id] ? undefined : 'kiritilmagan'}
+                  className="w-full bg-zinc-50 border border-zinc-200 rounded-xl p-2.5 text-zinc-900 focus:border-orange-500 focus:outline-none"
+                />
               </div>
 
               {/* Availability is the only stock control: mavjud / tugadi. */}

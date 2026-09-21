@@ -443,7 +443,10 @@ export default function StaffApp({ surface }: { surface: Extract<Surface, 'admin
     }
   };
 
-  const handleAddMenuItem = async (newItem: Partial<MenuItem>) => {
+  // Returns the created dish so the admin form can attach a cost price to it
+  // (a cost is stored separately and needs the dish's real id), or null when
+  // the create failed and there is nothing to attach it to.
+  const handleAddMenuItem = async (newItem: Partial<MenuItem>): Promise<MenuItem | null> => {
     try {
       const res = await fetch('/api/menu', {
         method: 'POST',
@@ -453,12 +456,33 @@ export default function StaffApp({ surface }: { surface: Extract<Surface, 'admin
       if (res.ok) {
         const added: MenuItem = await res.json();
         setMenuItems(prev => [...prev, added]);
-      } else {
-        const body = await res.json().catch(() => ({}));
-        showError(describeApiError(body) || 'Taom qoʻshilmadi. Maydonlarni tekshirib koʻring.');
+        return added;
       }
+      const body = await res.json().catch(() => ({}));
+      showError(describeApiError(body) || 'Taom qoʻshilmadi. Maydonlarni tekshirib koʻring.');
+      return null;
     } catch {
       showError('Serverga ulanib boʻlmadi — taom qoʻshilmadi.');
+      return null;
+    }
+  };
+
+  // What a dish costs to make, for the profit figures on the statistics tab.
+  // Its own endpoint: the value is never part of /api/menu, which is what
+  // guests load.
+  const handleUpdateMenuItemCost = async (itemId: string, costPrice: number) => {
+    try {
+      const res = await fetch(`/api/admin/menu-costs/${itemId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ costPrice })
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        showError(describeApiError(body) || 'Tannarxni saqlab boʻlmadi.');
+      }
+    } catch {
+      showError('Serverga ulanib boʻlmadi — tannarx saqlanmadi.');
     }
   };
 
@@ -936,6 +960,7 @@ export default function StaffApp({ surface }: { surface: Extract<Surface, 'admin
                 onUpdateMenuItem={handleUpdateMenuItem}
                 onAddMenuItem={handleAddMenuItem}
                 onDeleteMenuItem={handleDeleteMenuItem}
+                onUpdateMenuItemCost={handleUpdateMenuItemCost}
                 onAddTable={handleAddTable}
                 onDeleteTable={handleDeleteTable}
                 onUpdateOrderStatus={handleUpdateOrderStatus}

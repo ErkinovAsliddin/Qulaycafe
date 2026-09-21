@@ -103,7 +103,10 @@ import {
   createReview,
   listReviews,
   orderHasReviews,
-  dishRatingSummaries
+  dishRatingSummaries,
+  readMenuItemCosts,
+  setMenuItemCost,
+  deleteMenuItemCost
 } from './src/server/db';
 import {
   requireRole,
@@ -121,6 +124,7 @@ import {
 import {
   menuItemCreateSchema,
   menuItemUpdateSchema,
+  menuItemCostSchema,
   orderCreateSchema,
   orderStatusUpdateSchema,
   tableCreateSchema,
@@ -1588,15 +1592,21 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  // --- THERMAL PRINTER (ESC/POS over network, port 9100 style) ---
+  // --- THERMAL PRINTER (ESC/POS over network or browser-side USB) ---
   app.get('/api/admin/printer-settings', requireRole('admin'), (req: Request, res: Response) => {
     const s = readSettings(req.restaurantId as string) as any;
     const rows = db
-      .prepare(`SELECT key, value FROM settings WHERE restaurant_id = ? AND key IN ('printerIp','printerPort')`)
+      .prepare(
+        `SELECT key, value FROM settings WHERE restaurant_id = ? AND key IN ('printerConnectionType','printerIp','printerPort')`
+      )
       .all(req.restaurantId) as { key: string; value: string }[];
     const map: Record<string, string> = {};
     for (const r of rows) map[r.key] = r.value;
-    res.json({ printerIp: map.printerIp || '', printerPort: Number(map.printerPort) || 9100 });
+    res.json({
+      printerConnectionType: map.printerConnectionType === 'usb' ? 'usb' : 'network',
+      printerIp: map.printerIp || '',
+      printerPort: Number(map.printerPort) || 9100
+    });
   });
 
   app.post(
@@ -1605,7 +1615,12 @@ async function startServer() {
     validateBody(printerSettingsSchema),
     (req: Request, res: Response) => {
       const restaurantId = req.restaurantId as string;
-      const { printerIp, printerPort } = req.body;
+      const { printerConnectionType, printerIp, printerPort } = req.body;
+      if (printerConnectionType !== undefined) {
+        db.prepare(
+          `INSERT INTO settings (restaurant_id, key, value) VALUES (?, 'printerConnectionType', ?) ON CONFLICT(restaurant_id, key) DO UPDATE SET value = ?`
+        ).run(restaurantId, printerConnectionType, printerConnectionType);
+      }
       if (printerIp !== undefined) {
         db.prepare(
           `INSERT INTO settings (restaurant_id, key, value) VALUES (?, 'printerIp', ?) ON CONFLICT(restaurant_id, key) DO UPDATE SET value = ?`
@@ -1619,6 +1634,20 @@ async function startServer() {
       res.json({ success: true });
     }
   );
+
+  app.get('/api/admin/receipt-bytes/:orderId', requireRole('admin'), (req: Request, res: Response) => {
+    const restaurantId = req.restaurantId as string;
+    const row = db
+      .prepare('SELECT data FROM orders WHERE restaurant_id = ? AND id = ?')
+      .get(restaurantId, req.params.orderId) as { data: string } | undefined;
+    if (!row) {
+      res.status(404).json({ error: 'Order not found' });
+      return;
+    }
+    const restaurant = getRestaurantById(restaurantId);
+    const bytes = buildReceiptBytes(JSON.parse(row.data), restaurant?.name || 'Restoran');
+    res.json({ data: bytes.toString('base64') });
+  });
 
   app.post('/api/admin/print-receipt/:orderId', requireRole('admin'), async (req: Request, res: Response) => {
     const restaurantId = req.restaurantId as string;
@@ -1649,23 +1678,47 @@ async function startServer() {
   });
 
   // --- Z-REPORT (daily cash reconciliation) ---
+  const RESTAURANT_UTC_OFFSET_HOURS = Number(process.env.RESTAURANT_UTC_OFFSET_HOURS ?? 5);
+  const restaurantLocalDateIso = (date: Date) =>
+    new Date(date.getTime() + RESTAURANT_UTC_OFFSET_HOURS * 3600_000).toISOString().slice(0, 10);
+
+  const orderRestaurantDateIso = (order: Order) => {
+    const created = new Date(order.createdAt);
+    if (Number.isNaN(created.getTime())) return restaurantLocalDateIso(new Date());
+    return restaurantLocalDateIso(created);
+  };
+
+  // A drawer is counted against money actually taken, so every figure here
+  // covers PAID orders only — the same basis as the overview cards and the
+  // statistics tab. Tabs still open at closing time are reported as
+  // `unpaidTotal` rather than being counted as if they had been collected.
   function computeDailyTotals(restaurantId: string, dateStr: string) {
     const orders = readOrders(restaurantId).filter(
-      o => o.createdAt.slice(0, 10) === dateStr && o.status !== 'cancelled'
+      o => orderRestaurantDateIso(o) === dateStr && o.status !== 'cancelled'
     );
-    const cashTotal = orders
+    const paidOrders = orders.filter(o => o.paymentStatus === 'paid');
+    const cashTotal = paidOrders
       .filter(o => o.paymentMethod === 'cash' || o.paymentMethod === 'pay_at_counter')
       .reduce((s, o) => s + o.totalAmount, 0);
-    const cardTotal = orders.filter(o => o.paymentMethod === 'card').reduce((s, o) => s + o.totalAmount, 0);
-    const otherTotal = orders
+    const cardTotal = paidOrders.filter(o => o.paymentMethod === 'card').reduce((s, o) => s + o.totalAmount, 0);
+    const otherTotal = paidOrders
       .filter(o => o.paymentMethod === 'loyalty_points')
       .reduce((s, o) => s + o.totalAmount, 0);
-    return { cashTotal, cardTotal, otherTotal, orderCount: orders.length, totalRevenue: cashTotal + cardTotal + otherTotal };
+    const unpaidOrders = orders.filter(o => o.paymentStatus !== 'paid');
+    return {
+      cashTotal,
+      cardTotal,
+      otherTotal,
+      orderCount: orders.length,
+      unpaidCount: unpaidOrders.length,
+      unpaidTotal: unpaidOrders.reduce((s, o) => s + o.totalAmount, 0),
+      totalRevenue: cashTotal + cardTotal + otherTotal
+    };
   }
 
   app.get('/api/admin/z-report', requireRole('admin'), (req: Request, res: Response) => {
     const restaurantId = req.restaurantId as string;
-    const dateStr = (req.query.date as string) || new Date().toISOString().slice(0, 10);
+    const dateStr = (req.query.date as string) || restaurantLocalDateIso(new Date());
     const totals = computeDailyTotals(restaurantId, dateStr);
     const closure = getDailyClosure(restaurantId, dateStr);
     res.json({ date: dateStr, ...totals, closure: closure || null });
@@ -1673,7 +1726,7 @@ async function startServer() {
 
   app.post('/api/admin/z-report/close', requireRole('admin'), (req: Request, res: Response) => {
     const restaurantId = req.restaurantId as string;
-    const dateStr = (req.body?.date as string) || new Date().toISOString().slice(0, 10);
+    const dateStr = (req.body?.date as string) || restaurantLocalDateIso(new Date());
     const totals = computeDailyTotals(restaurantId, dateStr);
     upsertDailyClosure(
       restaurantId,
@@ -2345,10 +2398,43 @@ async function startServer() {
     const { id } = req.params;
     db.prepare('DELETE FROM menu_items WHERE restaurant_id = ? AND id = ?').run(restaurantId, id);
     deleteImageBlob(restaurantId, 'menu_item', id); // don't leave the photo bytes behind
+    deleteMenuItemCost(restaurantId, id); // nor the dish's cost price
     broadcastTableAll(restaurantId, 'MENU_UPDATED', readMenu(restaurantId));
     broadcastStaff(restaurantId, 'MENU_UPDATED', readMenu(restaurantId));
     res.json({ success: true, id });
   });
+
+  // --- DISH COSTS (tannarx) ---
+  // The input side of the gross-profit figures in the statistics tab. Costs
+  // live in their own table, never inside the menu item, so no guest-facing
+  // response or MENU_UPDATED broadcast can carry them: this pair of admin-only
+  // routes is the only way in or out.
+  app.get('/api/admin/menu-costs', requireRole('admin'), (req: Request, res: Response) => {
+    res.json(readMenuItemCosts(req.restaurantId as string));
+  });
+
+  app.put(
+    '/api/admin/menu-costs/:id',
+    requireRole('admin'),
+    requireActiveSubscription,
+    validateBody(menuItemCostSchema),
+    (req: Request, res: Response) => {
+      const restaurantId = req.restaurantId as string;
+      const { id } = req.params;
+      const exists = db
+        .prepare('SELECT 1 AS ok FROM menu_items WHERE restaurant_id = ? AND id = ?')
+        .get(restaurantId, id);
+      if (!exists) {
+        res.status(404).json({ error: 'Item not found' });
+        return;
+      }
+      // 0 clears whatever was recorded ("cost unknown"), which db.setMenuItemCost
+      // turns into a row delete; the response echoes that so the form can follow.
+      const costPrice: number = req.body.costPrice;
+      setMenuItemCost(restaurantId, id, costPrice);
+      res.json({ menuItemId: id, costPrice: costPrice > 0 ? costPrice : null });
+    }
+  );
 
 
   // --- MENU BACKUP: EXPORT / IMPORT ---
@@ -3496,6 +3582,11 @@ async function startServer() {
   // inside its JSON `data` blob rather than a separate rows-per-item table.
   // Fine at restaurant scale (hundreds to low thousands of orders) — this
   // is a per-tenant read scoped to one restaurant's own order history.
+  //
+  // Money here means money COLLECTED: every revenue figure below counts only
+  // orders the restaurant has actually marked paid, which is what the overview
+  // cards and the Z-report already do. Bills still sitting unpaid are reported
+  // separately instead of being folded into "daromad".
   app.get('/api/admin/analytics', requireRole('admin'), (req: Request, res: Response) => {
     const restaurantId = req.restaurantId as string;
     const rangeDays = Math.min(Math.max(Number(req.query.days) || 7, 1), 90);
@@ -3508,9 +3599,20 @@ async function startServer() {
       const t = new Date(o.createdAt).getTime();
       return t >= previousCutoff && t < cutoff;
     });
+    const paidOrders = orders.filter(o => o.paymentStatus === 'paid');
+    const unpaidOrders = orders.filter(o => o.paymentStatus !== 'paid');
+
+    // What each dish costs to make, as the admin last recorded it. A dish with
+    // no entry has never been priced: its line items are left out of the cost
+    // of goods and counted as unpriced revenue instead, so profit is reported
+    // as "at least this much" rather than being quietly overstated.
+    const dishCosts = readMenuItemCosts(restaurantId);
 
     const revenueByDay: Record<string, number> = {};
-    const dishCounts: Record<string, { name: string; quantity: number; revenue: number }> = {};
+    const dishCounts: Record<
+      string,
+      { name: string; quantity: number; revenue: number; cost: number | null }
+    > = {};
     const categoryRevenue: Record<string, number> = {};
     const paymentTotals: Record<string, { count: number; revenue: number }> = {
       cash: { count: 0, revenue: 0 },
@@ -3521,9 +3623,14 @@ async function startServer() {
     let pickupCount = 0;
     let dineInCount = 0;
     let totalRevenue = 0;
+    let costOfGoodsSold = 0;
+    let unpricedRevenue = 0;
 
-    for (const order of orders) {
-      const day = order.createdAt.slice(0, 10); // YYYY-MM-DD
+    for (const order of paidOrders) {
+      // Bucket by the restaurant's OWN calendar day (UTC+5), not the UTC one:
+      // a bill settled at 01:00 local belongs to last night's shift, and the
+      // overview cards already count it that way.
+      const day = restaurantLocalDateIso(new Date(order.createdAt));
       revenueByDay[day] = (revenueByDay[day] || 0) + order.totalAmount;
       totalRevenue += order.totalAmount;
 
@@ -3532,24 +3639,48 @@ async function startServer() {
       paymentTotals[method].count += 1;
       paymentTotals[method].revenue += order.totalAmount;
 
-      if (order.orderType === 'delivery') deliveryCount += 1;
-      else if (order.orderType === 'pickup') pickupCount += 1;
-      else dineInCount += 1;
-
       for (const item of order.items) {
         const key = item.menuItem.id;
-        if (!dishCounts[key]) dishCounts[key] = { name: item.menuItem.name, quantity: 0, revenue: 0 };
-        dishCounts[key].quantity += item.quantity;
-        dishCounts[key].revenue += item.itemTotal;
+        const unitCost = dishCosts[key];
+        if (!dishCounts[key]) {
+          dishCounts[key] = { name: item.menuItem.name, quantity: 0, revenue: 0, cost: null };
+        }
+        const dish = dishCounts[key];
+        dish.quantity += item.quantity;
+        dish.revenue += item.itemTotal;
+        if (unitCost > 0) {
+          dish.cost = (dish.cost ?? 0) + unitCost * item.quantity;
+          costOfGoodsSold += unitCost * item.quantity;
+        } else {
+          unpricedRevenue += item.itemTotal;
+        }
 
         const category = item.menuItem.category || 'boshqa';
         categoryRevenue[category] = (categoryRevenue[category] || 0) + item.itemTotal;
       }
     }
 
+    // Demand is a volume measure rather than a money one, so the order-type
+    // split covers every order in the range, settled or not.
+    for (const order of orders) {
+      if (order.orderType === 'delivery') deliveryCount += 1;
+      else if (order.orderType === 'pickup') pickupCount += 1;
+      else dineInCount += 1;
+    }
+
     const topDishes = Object.values(dishCounts)
       .sort((a, b) => b.quantity - a.quantity)
-      .slice(0, 10);
+      .slice(0, 10)
+      .map(d => ({
+        name: d.name,
+        quantity: d.quantity,
+        revenue: d.revenue,
+        cost: d.cost,
+        profit: d.revenue - (d.cost ?? 0),
+        // null (shown as "—") when the dish has no cost price on file: a
+        // margin computed from a missing cost would just read 100%.
+        marginPercent: d.cost !== null && d.revenue > 0 ? Math.round(((d.revenue - d.cost) / d.revenue) * 100) : null
+      }));
 
     const revenueTimeline = Object.entries(revenueByDay)
       .sort(([a], [b]) => (a < b ? -1 : 1))
@@ -3563,22 +3694,44 @@ async function startServer() {
       .filter(([, v]) => v.count > 0)
       .map(([method, v]) => ({ method, ...v }));
 
-    const previousRevenue = previousPeriodOrders.reduce((s, o) => s + o.totalAmount, 0);
+    // Same paid basis as the current period, so the percentage compares two
+    // like-for-like numbers rather than collected revenue against billed.
+    const previousRevenue = previousPeriodOrders
+      .filter(o => o.paymentStatus === 'paid')
+      .reduce((s, o) => s + o.totalAmount, 0);
     const revenueChangePercent =
       previousRevenue > 0 ? Math.round(((totalRevenue - previousRevenue) / previousRevenue) * 100) : null;
+
+    const unpaidRevenue = unpaidOrders.reduce((s, o) => s + o.totalAmount, 0);
+    const grossProfit = totalRevenue - costOfGoodsSold;
+    const unpricedDishCount = Object.values(dishCounts).filter(d => d.cost === null).length;
 
     res.json({
       rangeDays,
       totalRevenue,
       totalOrders: orders.length,
-      averageOrderValue: orders.length > 0 ? Math.round(totalRevenue / orders.length) : 0,
+      paidOrders: paidOrders.length,
+      unpaidOrders: unpaidOrders.length,
+      unpaidRevenue,
+      averageOrderValue: paidOrders.length > 0 ? Math.round(totalRevenue / paidOrders.length) : 0,
       revenueChangePercent,
       previousPeriodRevenue: previousRevenue,
       revenueTimeline,
       topDishes,
       categoryBreakdown,
       paymentMethodBreakdown,
-      orderTypeBreakdown: { dineIn: dineInCount, delivery: deliveryCount, pickup: pickupCount }
+      orderTypeBreakdown: { dineIn: dineInCount, delivery: deliveryCount, pickup: pickupCount },
+      // Gross profit = collected revenue minus what the dishes on those bills
+      // cost to make. It never subtracts rent, wages or taxes, so it is a
+      // menu-level figure, not the restaurant's bottom line.
+      costOfGoodsSold,
+      grossProfit,
+      grossMarginPercent: totalRevenue > 0 ? Math.round((grossProfit / totalRevenue) * 100) : null,
+      // Revenue that is NOT in the cost of goods because those dishes have no
+      // cost price set — the more this is, the softer the margin above.
+      unpricedRevenue,
+      pricedDishCount: Object.values(dishCounts).filter(d => d.cost !== null).length,
+      unpricedDishCount
     });
   });
 
