@@ -1,0 +1,31 @@
+services:
+  # The app shares this network namespace so its printer TCP connection can
+  # use the router's WireGuard route. Only the printer /32 should be routed
+  # through WireGuard in wg0.conf; website traffic remains on the normal path.
+  wireguard:
+    image: lscr.io/linuxserver/wireguard:latest
+    container_name: restaurant-wireguard
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - ./wireguard:/config
+    ports:
+      - "6000:6000"
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    restart: unless-stopped
+
+  app:
+    build: .
+    container_name: restaurant-app
+    network_mode: "service:wireguard"
+    depends_on:
+      - wireguard
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - restaurant-data:/app/data
+
+volumes:
+  restaurant-data:

@@ -19,6 +19,9 @@ data
 .env.local
 .env.*.local
 
+# Router-generated WireGuard client profiles contain private keys.
+/wireguard/wg_confs/*.conf
+
 # Logs
 *.log
 npm-debug.log*
