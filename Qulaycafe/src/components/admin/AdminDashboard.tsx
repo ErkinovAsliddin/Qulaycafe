@@ -2,6 +2,13 @@ import { formatSom } from '../../utils/currency';
 import React, { useState } from 'react';
 import { MenuItem, MenuCategory, Order, Table, LoyaltyMember, OrderStatus, WaiterCall, CustomizationGroup } from '../../types';
 import {
+  orderDestinationBadge,
+  orderStatusLabel,
+  paymentMethodBadge,
+  paymentMethodLabel,
+  paymentStatusLabel
+} from '../../lib/orderLabels';
+import {
   LayoutDashboard,
   QrCode,
   DollarSign,
@@ -61,7 +68,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 // ---------------------------------------------------------------------------
 const OrderStatusChip: React.FC<{ status: string }> = ({ status }) => (
   <span className="bg-orange-50 text-orange-800 border border-orange-200 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase">
-    {status}
+    {orderStatusLabel(status)}
   </span>
 );
 
@@ -71,7 +78,7 @@ const OrderPaymentMethodChip: React.FC<{ method?: string }> = ({ method }) => (
       method === 'card' ? 'bg-sky-50 text-sky-800 border border-sky-200' : 'bg-zinc-50 text-zinc-700 border border-zinc-200'
     }`}
   >
-    {method === 'card' ? '💳 Karta' : method === 'loyalty_points' ? '⭐ Ball' : '💵 Naqd'}
+    {paymentMethodBadge(method)}
   </span>
 );
 
@@ -83,17 +90,9 @@ const OrderPaymentStatusChip: React.FC<{ paymentStatus: string }> = ({ paymentSt
         : 'bg-rose-50 text-rose-800 border border-rose-200'
     }`}
   >
-    {paymentStatus}
+    {paymentStatusLabel(paymentStatus)}
   </span>
 );
-
-/** Where the order is going: a table, a courier or the counter. */
-const orderDestinationLabel = (order: Order) =>
-  order.orderType === 'delivery'
-    ? '🛵 Dostavka'
-    : order.orderType === 'pickup'
-      ? '🥡 Olib ketish'
-      : `Table #${order.tableNumber}`;
 
 interface OrderRowActionsProps {
   order: Order;
@@ -150,7 +149,7 @@ const OrderRowActions: React.FC<OrderRowActionsProps> = ({
   );
 };
 
-type PrinterConnectionType = 'network' | 'usb';
+type PrinterConnectionType = 'network' | 'usb' | 'android';
 
 // Uzbekistan restaurants run on UTC+5 with no DST. Shift timestamps before
 // slicing YYYY-MM-DD so "today" does not follow the browser/server's UTC day.
@@ -163,92 +162,6 @@ const orderRestaurantDateIso = (order: Order) => {
   const created = new Date(order.createdAt);
   if (Number.isNaN(created.getTime())) return restaurantLocalDateIso(new Date());
   return restaurantLocalDateIso(created);
-};
-
-type UsbEndpointDescriptor = {
-  endpointNumber: number;
-  direction: 'in' | 'out';
-  type: 'bulk' | 'interrupt' | 'isochronous';
-};
-
-type UsbAlternateInterface = {
-  interfaceClass: number;
-  alternateSetting: number;
-  endpoints: UsbEndpointDescriptor[];
-};
-
-type UsbInterface = {
-  interfaceNumber: number;
-  alternates: UsbAlternateInterface[];
-  claimed: boolean;
-};
-
-type UsbConfiguration = {
-  interfaces: UsbInterface[];
-};
-
-type UsbDevice = {
-  opened: boolean;
-  configuration: UsbConfiguration | null;
-  open: () => Promise<void>;
-  close: () => Promise<void>;
-  selectConfiguration: (configurationValue: number) => Promise<void>;
-  claimInterface: (interfaceNumber: number) => Promise<void>;
-  selectAlternateInterface: (interfaceNumber: number, alternateSetting: number) => Promise<void>;
-  transferOut: (endpointNumber: number, data: BufferSource) => Promise<unknown>;
-};
-
-type UsbNavigator = Navigator & {
-  usb?: {
-    requestDevice: (options: { filters: Record<string, never>[] }) => Promise<UsbDevice>;
-  };
-};
-
-const decodeBase64Bytes = (base64: string) => {
-  const binary = window.atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-};
-
-const findUsbOutEndpoint = (device: UsbDevice) => {
-  const configuration = device.configuration;
-  if (!configuration) return null;
-
-  for (const iface of configuration.interfaces) {
-    for (const alternate of iface.alternates) {
-      const endpoint = alternate.endpoints.find(
-        ep => ep.direction === 'out' && (ep.type === 'bulk' || ep.type === 'interrupt')
-      );
-      if (endpoint) return { iface, alternate, endpoint };
-    }
-  }
-  return null;
-};
-
-const printEscposOverUsb = async (bytes: Uint8Array) => {
-  if (!window.isSecureContext) {
-    throw new Error('USB printer faqat HTTPS yoki localhost orqali ishlaydi.');
-  }
-  const usb = (navigator as UsbNavigator).usb;
-  if (!usb) {
-    throw new Error("Bu brauzer WebUSB ni qo'llab-quvvatlamaydi. Chrome yoki Edge ishlating.");
-  }
-
-  const device = await usb.requestDevice({ filters: [] });
-  if (!device.opened) await device.open();
-  if (!device.configuration) await device.selectConfiguration(1);
-
-  const target = findUsbOutEndpoint(device);
-  if (!target) {
-    await device.close().catch(() => {});
-    throw new Error('USB printer uchun yozish endpointi topilmadi.');
-  }
-
-  if (!target.iface.claimed) await device.claimInterface(target.iface.interfaceNumber);
-  await device.selectAlternateInterface(target.iface.interfaceNumber, target.alternate.alternateSetting);
-  await device.transferOut(target.endpoint.endpointNumber, bytes);
-  await device.close().catch(() => {});
 };
 
 interface AdminDashboardProps {
@@ -460,6 +373,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [printerPort, setPrinterPort] = useState<number>(9100);
   const [printerSaving, setPrinterSaving] = useState(false);
   const [printerMsg, setPrinterMsg] = useState<string | null>(null);
+  const [printerTesting, setPrinterTesting] = useState(false);
+  const [printerTestMsg, setPrinterTestMsg] = useState<string | null>(null);
 
   // ---------------------------------------------------------------------------
   // RESERVATIONS (bot-only booking; this is the restaurant's answer side)
@@ -646,7 +561,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       .then(r => (r.ok ? r.json() : null))
       .then(data => {
         if (data) {
-          setPrinterConnectionType(data.printerConnectionType === 'usb' ? 'usb' : 'network');
+          setPrinterConnectionType(
+            data.printerConnectionType === 'usb' || data.printerConnectionType === 'android'
+              ? data.printerConnectionType
+              : 'network'
+          );
           setPrinterIp(data.printerIp || '');
           setPrinterPort(data.printerPort || 9100);
         }
@@ -1033,18 +952,37 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // physical checks and a PDF copy without needing a PDF library.
   const printReceipt = (order: Order) => {
     const win = window.open('', '_blank', 'width=380,height=600');
-    if (!win) return;
+    if (!win) {
+      window.alert("Chek oynasi ochilmadi. Brauzerda admin.qulaycafe.uz uchun pop-up oynalarga ruxsat bering.");
+      return;
+    }
+    // Every value below is written with document.write, so dynamic text is
+    // escaped — a dish name containing `<` would otherwise break the receipt
+    // layout or inject markup into the print window.
+    const escapeMap: Record<string, string> = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    };
+    const escapeHtml = (value: string) => String(value).replace(/[&<>"']/g, c => escapeMap[c] ?? c);
+    // A receipt never prints a stand-in name: if branding has not loaded (or
+    // the restaurant genuinely has none) the header line is omitted, rather
+    // than showing a placeholder the guest would read as the real name.
+    const receiptName = (branding?.restaurantName || '').trim();
     const itemsHtml = order.items
       .map(
-        i => `<tr><td>${i.quantity}x ${i.menuItem.name}</td><td style="text-align:right">${formatSom(i.itemTotal)}</td></tr>`
+        i => `<tr><td>${i.quantity}x ${escapeHtml(i.menuItem.name)}</td><td style="text-align:right">${formatSom(i.itemTotal)}</td></tr>`
       )
       .join('');
     win.document.write(`
       <html>
         <head>
-          <title>Chek — ${order.id}</title>
+          <title>Chek — ${escapeHtml(order.id)}</title>
           <style>
-            body { font-family: 'Courier New', monospace; padding: 16px; color: #111; font-size: 13px; }
+            @page { margin: 0; }
+            body { font-family: 'Courier New', monospace; box-sizing: border-box; width: 72mm; padding: 4mm; color: #111; font-size: 13px; }
             h1 { font-size: 16px; text-align: center; margin: 0 0 4px; }
             .sub { text-align: center; font-size: 11px; color: #555; margin-bottom: 12px; }
             table { width: 100%; border-collapse: collapse; margin: 12px 0; }
@@ -1052,14 +990,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             .totals td { border-top: 1px dashed #999; padding-top: 6px; }
             .grand { font-weight: bold; font-size: 15px; border-top: 2px solid #111 !important; }
             .footer { text-align: center; margin-top: 16px; font-size: 11px; color: #555; }
+            .print-action { display: block; width: 100%; margin-top: 18px; padding: 10px; border: 0; border-radius: 8px; background: #f97316; color: #fff; font: bold 14px system-ui, sans-serif; cursor: pointer; }
+            @media print { .print-action { display: none; } }
           </style>
         </head>
         <body>
-          <h1>${branding?.restaurantName || 'Restoran'}</h1>
+          ${receiptName ? `<h1>${escapeHtml(receiptName)}</h1>` : ''}
           <div class="sub">${
             order.orderType === 'delivery' ? '🛵 Dostavka' : order.orderType === 'pickup' ? '🥡 Olib ketish' : `Stol #${order.tableNumber}`
           } • ${new Date(order.createdAt).toLocaleString('uz-UZ')}</div>
-          <div class="sub">Buyurtma: ${order.id}</div>
+          <div class="sub">Buyurtma: ${escapeHtml(order.id)}</div>
           <table>${itemsHtml}</table>
           <table class="totals">
             <tr><td>Oraliq summa</td><td style="text-align:right">${formatSom(order.subtotal)}</td></tr>
@@ -1069,23 +1009,55 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <tr class="grand"><td>JAMI</td><td style="text-align:right">${formatSom(order.totalAmount)}</td></tr>
           </table>
           <div class="footer">Xaridingiz uchun rahmat!</div>
-          <script>window.onload = () => window.print();</script>
+          <button class="print-action" type="button" onclick="window.print()">Chop etish</button>
         </body>
       </html>
     `);
     win.document.close();
+    // A script embedded through document.write is not reliably executed by
+    // every Windows browser configuration. Trigger printing from the opener
+    // after the popup has loaded; the button in the receipt stays as a clear
+    // fallback if Windows blocks the automatic dialog.
+    const openPrintDialog = () => {
+      try {
+        win.focus();
+        win.print();
+      } catch {
+        // The visible “Chop etish” button in the receipt is the fallback.
+      }
+    };
+    if (win.document.readyState === 'complete') {
+      window.setTimeout(openPrintDialog, 100);
+    } else {
+      win.addEventListener('load', () => window.setTimeout(openPrintDialog, 100), { once: true });
+    }
   };
 
   const printThermalReceipt = async (order: Order) => {
-    try {
-      if (printerConnectionType === 'usb') {
+    if (printerConnectionType === 'android') {
+      try {
+        // RawBT is configured on the phone with the XP-80U's LAN IP and
+        // port 9100. The app accepts the raw ESC/POS receipt we already
+        // generate on the website, so it preserves formatting and paper cut.
         const res = await fetch(`/api/admin/receipt-bytes/${order.id}`);
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || "Chek ma'lumotlarini olish imkoni bo'lmadi.");
-        await printEscposOverUsb(decodeBase64Bytes(data.data));
-        return;
+        if (!res.ok || !data.data) throw new Error(data.error || "Chek ma'lumotini olish imkoni bo'lmadi.");
+        window.location.href = `rawbt:base64,${data.data}`;
+      } catch (err: any) {
+        window.alert(err?.message || "RawBT uchun chek ma'lumotini tayyorlab bo'lmadi.");
       }
+      return;
+    }
 
+    if (printerConnectionType === 'usb') {
+      // Windows exposes USB receipt printers through their installed printer
+      // driver. Use the native browser print dialog instead of WebUSB, which
+      // cannot reliably claim Windows printer-class devices.
+      printReceipt(order);
+      return;
+    }
+
+    try {
       const res = await fetch(`/api/admin/print-receipt/${order.id}`, { method: 'POST' });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Printerga chop etib bo'lmadi.");
@@ -2035,7 +2007,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className="font-bold text-xs text-orange-600 truncate">#{ord.id}</p>
-                        <p className="font-extrabold text-sm text-zinc-900 mt-0.5">{orderDestinationLabel(ord)}</p>
+                        <p className="font-extrabold text-sm text-zinc-900 mt-0.5">{orderDestinationBadge(ord)}</p>
                         {!!ord.customerName && (
                           <p className="text-[11px] text-zinc-500 font-medium truncate">{ord.customerName}</p>
                         )}
@@ -2089,7 +2061,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     {orders.map(ord => (
                       <tr key={ord.id} className="hover:bg-zinc-50 transition-colors">
                         <td className="p-3 font-bold text-orange-600">#{ord.id}</td>
-                        <td className="p-3 font-extrabold text-zinc-900">{orderDestinationLabel(ord)}</td>
+                        <td className="p-3 font-extrabold text-zinc-900">{orderDestinationBadge(ord)}</td>
                         <td className="p-3 font-medium">{ord.customerName}</td>
                         <td className="p-3 max-w-xs truncate text-zinc-500">
                           {ord.items.map(i => `${i.quantity}x ${i.menuItem.name}`).join(', ')}
@@ -2245,7 +2217,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
 
               <p className="text-xs text-zinc-500 font-medium">
-                Scan with any phone camera to view digital menu & order directly for Table #{selectedQRTable}
+                {t.qrScanHint.replace('{table}', String(selectedQRTable))}
               </p>
 
               <div className="pt-3 border-t border-zinc-100 flex items-center justify-center space-x-2">
@@ -2257,7 +2229,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   }}
                   className="bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-xs font-bold px-3 py-1.5 rounded-lg border border-zinc-200 transition-colors"
                 >
-                  Copy Table URL
+                  {t.copyTableUrl}
                 </button>
                 <a
                   href={getTableFullUrl(selectedQRTable, appUrl, restaurantId, restaurantSlug)}
@@ -2265,7 +2237,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   rel="noreferrer"
                   className="bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors"
                 >
-                  Test Table Menu
+                  {t.testTableMenu}
                 </a>
               </div>
             </div>
@@ -2273,7 +2245,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             {/* Direct Multi-Device Role Links Section */}
             <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-5 space-y-3">
               <h3 className="font-extrabold text-sm text-zinc-900 uppercase tracking-wider">
-                📱 Multi-Device Setup (Separate Kitchen & POS Screen Links)
+                {t.multiDeviceSetup}
               </h3>
               <p className="text-xs text-zinc-600">
                 Each screen has its own address, so a device only ever sees the one interface it is meant for
@@ -2283,7 +2255,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
                 <div className="bg-white p-3.5 rounded-xl border border-zinc-200 space-y-1.5">
                   <div className="text-xs font-extrabold text-orange-600 flex items-center justify-between">
-                    <span>👨‍🍳 Kitchen Display (KDS)</span>
+                    <span>{t.kitchenDisplayKDS}</span>
                     <button
                       onClick={() => {
                         // Each surface has its own hostname now, so this is the
@@ -2472,7 +2444,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         {analyticsData.paymentMethodBreakdown.map(p => (
                           <div key={p.method} className="flex items-center justify-between bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2.5">
                             <span className="text-xs font-bold text-zinc-800">
-                              {p.method === 'card' ? '💳 Karta' : p.method === 'loyalty_points' ? '⭐ Ballar' : '💵 Naqd'}
+                              {paymentMethodBadge(p.method)}
                             </span>
                             <div className="text-right">
                               <span className="text-xs font-black text-zinc-900">{formatSom(p.revenue)}</span>
@@ -3477,12 +3449,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <span>Termal printer</span>
             </div>
             <p className="text-xs text-zinc-500">
-              LAN printer IP orqali ishlaydi. USB printer esa shu admin panel ochilgan laptopga ulangan bo'lishi kerak.
+              “Telefon / Windows” rejimi telefon yoki kompyuterning print oynasini ochadi: qurilmadagi print xizmati printerga mahalliy Wi-Fi orqali ulanadi. “LAN / Wi-Fi” rejimida esa Alibaba serveri printerga VPN yoki bevosita tarmoq orqali ulanadi.
             </p>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               {([
                 { value: 'network', label: 'LAN / Wi-Fi', hint: 'IP manzil orqali' },
-                { value: 'usb', label: 'USB', hint: 'Laptopga ulangan printer' }
+                { value: 'android', label: 'Android (RawBT)', hint: 'Telefon → printer, VPN kerak emas' },
+                { value: 'usb', label: 'Windows', hint: 'Kompyuter print oynasi orqali' }
               ] as const).map(option => (
                 <button
                   key={option.value}
@@ -3507,7 +3480,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   value={printerIp}
                   onChange={(e) => setPrinterIp(e.target.value)}
                   placeholder="192.168.1.50"
-                  disabled={printerConnectionType === 'usb'}
+                  disabled={printerConnectionType === 'usb' || printerConnectionType === 'android'}
                   className="w-full bg-white border border-zinc-200 focus:border-orange-500 rounded-xl px-3 py-2 text-xs text-zinc-900 outline-none"
                 />
               </div>
@@ -3517,15 +3490,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   type="number"
                   value={printerPort}
                   onChange={(e) => setPrinterPort(Number(e.target.value))}
-                  disabled={printerConnectionType === 'usb'}
+                  disabled={printerConnectionType === 'usb' || printerConnectionType === 'android'}
                   className="w-full bg-white border border-zinc-200 focus:border-orange-500 rounded-xl px-3 py-2 text-xs text-zinc-900 outline-none"
                 />
               </div>
             </div>
             {printerConnectionType === 'usb' && (
               <p className="text-[11px] font-bold text-zinc-500">
-                USB chop etish Chrome yoki Edge brauzerida, HTTPS yoki localhost orqali ishlaydi. Agar printer USB qurilma sifatida
-                ko'rinmasa, yuqoridagi 🧾 Chek tugmasi orqali OS print dialogidan foydalaning.
+                Android: XP-80U LAN/ESC-POS’ni qo‘llaydigan print xizmatini o‘rnating, unda printer IP’i va 9100 portini qo‘shing. So‘ng “Termal” tugmasi Android print oynasini ochadi. Windows: Xprinter drayverini o‘rnating va 80 mm qog‘ozni tanlang.
+              </p>
+            )}
+            {printerConnectionType === 'android' && (
+              <p className="text-[11px] font-bold text-zinc-500">
+                Android telefoningizga RawBT ilovasini o‘rnating. RawBT ichida Wi-Fi / Ethernet’ni tanlang, XP-80U IP manzilini va 9100 portini kiriting, so‘ng uning test chop etishini bajaring. “Termal” tugmasi chekni RawBT’ga yuboradi.
               </p>
             )}
             <button
@@ -3549,6 +3526,32 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               {printerSaving ? 'Saqlanmoqda...' : 'Saqlash'}
             </button>
             {printerMsg && <p className="text-xs font-bold text-zinc-600">{printerMsg}</p>}
+            {printerConnectionType === 'network' && (
+              <div className="space-y-1">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setPrinterTesting(true);
+                    setPrinterTestMsg(null);
+                    try {
+                      const res = await fetch('/api/admin/printer-test', { method: 'POST' });
+                      const data = await res.json().catch(() => ({}));
+                      setPrinterTestMsg(data.message || data.error || 'Printer ulanishi tekshirilmadi.');
+                    } catch {
+                      setPrinterTestMsg('Serverga ulanib bo‘lmadi.');
+                    } finally {
+                      setPrinterTesting(false);
+                    }
+                  }}
+                  disabled={printerTesting || printerSaving}
+                  className="border border-zinc-300 bg-white hover:bg-zinc-50 disabled:opacity-60 text-zinc-800 font-bold px-4 py-2 rounded-xl text-xs"
+                >
+                  {printerTesting ? 'Tekshirilmoqda...' : 'Ulanishni tekshirish'}
+                </button>
+                {printerTestMsg && <p className="text-xs font-bold text-zinc-700">{printerTestMsg}</p>}
+                <p className="text-[10px] text-zinc-500">Avval IP va portni saqlang. Tekshiruv qog‘oz chiqarmaydi.</p>
+              </div>
+            )}
           </div>
 
           <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 font-medium flex items-center space-x-2">
@@ -3673,7 +3676,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center space-x-2">
                       <label htmlFor="add-dish-file" className="cursor-pointer bg-white text-zinc-900 text-[10px] font-bold px-3 py-1.5 rounded-lg flex items-center space-x-1 shadow">
                         <Upload className="w-3 h-3" />
-                        <span>Change Photo</span>
+                        <span>{t.changePhoto}</span>
                       </label>
                     </div>
                   </div>
@@ -3698,13 +3701,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     className="w-full cursor-pointer bg-orange-50 hover:bg-orange-100 border border-orange-200 text-orange-700 font-bold py-2 rounded-xl text-center flex items-center justify-center space-x-2 transition-colors"
                   >
                     <Upload className="w-4 h-4" />
-                    <span>Upload Image File Directly</span>
+                    <span>{t.uploadImageDirectly}</span>
                   </label>
                 </div>
 
                 {/* Preset Fast Picks */}
                 <div>
-                  <span className="block text-[10px] text-zinc-500 font-semibold mb-1">Quick Sample Photos:</span>
+                  <span className="block text-[10px] text-zinc-500 font-semibold mb-1">{t.quickSamplePhotos}</span>
                   <div className="flex flex-wrap gap-1">
                     {presetFoodImages.map(p => (
                       <button
@@ -3922,7 +3925,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center space-x-2">
                       <label htmlFor="edit-dish-file" className="cursor-pointer bg-white text-zinc-900 text-[10px] font-bold px-3 py-1.5 rounded-lg flex items-center space-x-1 shadow">
                         <Upload className="w-3 h-3" />
-                        <span>Change Photo</span>
+                        <span>{t.changePhoto}</span>
                       </label>
                     </div>
                   </div>
@@ -3947,13 +3950,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     className="w-full cursor-pointer bg-orange-50 hover:bg-orange-100 border border-orange-200 text-orange-700 font-bold py-2 rounded-xl text-center flex items-center justify-center space-x-2 transition-colors"
                   >
                     <Upload className="w-4 h-4" />
-                    <span>Upload Image File Directly</span>
+                    <span>{t.uploadImageDirectly}</span>
                   </label>
                 </div>
 
                 {/* Preset Fast Picks */}
                 <div>
-                  <span className="block text-[10px] text-zinc-500 font-semibold mb-1">Quick Sample Photos:</span>
+                  <span className="block text-[10px] text-zinc-500 font-semibold mb-1">{t.quickSamplePhotos}</span>
                   <div className="flex flex-wrap gap-1">
                     {presetFoodImages.map(p => (
                       <button
@@ -4230,7 +4233,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       </div>
                       <div>
                         <span className="text-zinc-500 font-semibold block">Payment Method:</span>
-                        <span className="font-bold text-zinc-800 uppercase">{activeOrd.paymentMethod?.replace('_', ' ') || 'At Table'}</span>
+                        <span className="font-bold text-zinc-800">{paymentMethodLabel(activeOrd.paymentMethod)}</span>
                       </div>
                     </div>
 
@@ -4337,12 +4340,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     ) : (
                       <button
                         onClick={() => {
-                          onUpdateOrderStatus(activeOrd.id, 'served', 'paid');
+                          // The backend clears the table only when the order
+                          // reaches the paid status. Keeping it at "served"
+                          // left a paid order attached to the table forever.
+                          onUpdateOrderStatus(activeOrd.id, 'paid', 'paid');
                           setSelectedTableDetail(null);
                         }}
                         className="flex-1 bg-zinc-800 hover:bg-zinc-900 text-white font-extrabold py-3 rounded-xl text-xs flex items-center justify-center space-x-1.5 transition-all"
                       >
-                        <span>Clear Table Layout</span>
+                        <span>Clear Paid Table</span>
                       </button>
                     )}
 

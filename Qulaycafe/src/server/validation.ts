@@ -6,6 +6,60 @@ import { z } from 'zod';
 
 const safeText = (max: number) => z.string().trim().min(1).max(max);
 
+// ---------------------------------------------------------------------------
+// Placeholder / official-document text guard.
+//
+// Restaurant, category, and dish names are rendered verbatim on order cards and
+// printed receipts (see buildReceiptBytes in escpos.ts and printReceipt in
+// AdminDashboard). Boilerplate copy pasted out of an official document —
+// ministry, cabinet, or central-bank wording — is not a name anyone chose, so
+// it is refused at the door instead of being stored and then printed on a
+// customer's check, where the header reads as the name of the business.
+//
+// The patterns are deliberately word-based and narrow so a genuine name can
+// never be refused. "Respublika" is NOT on the list by itself, because
+// "Respublika" is a real restaurant name — it is only caught here when it
+// appears alongside the state-body wording below.
+// ---------------------------------------------------------------------------
+const BOILERPLATE_PATTERNS: { label: string; re: RegExp }[] = [
+  // Stems carry the grammatical suffixes used in Uzbek (vazirligi,
+  // mahkamasining, hukumatning), so they are matched without a trailing
+  // boundary.
+  {
+    label: 'state ministry, cabinet, or council wording',
+    re: /\b(vazirlik|vazirligi|vazirlar|mahkama|hukumat)/i
+  },
+  { label: 'Cyrillic state ministry or cabinet wording', re: /(министерств|вазирлик|маҳкама|ҳукумат)/i },
+  { label: 'central bank wording', re: /\bmarkaziy\s+bank/i },
+  // \p{L} rather than \w: JavaScript's \w is ASCII-only, so it would never
+  // match the Cyrillic letters in "центральный".
+  { label: 'Cyrillic central bank wording', re: /центральн\p{L}*\s+банк/iu },
+  // The caption form used on official reports and meeting minutes.
+  { label: 'official document wording', re: /\b(to['’ʻ‘`]?g['’ʻ‘`]?risida\s+axborot|majlisi\s+to)/i },
+  {
+    label: 'formal country name',
+    re: /\b(republic\s+of\s+uzbekistan|respublikasi\s+o['’ʻ‘`]?zbekiston)/i
+  },
+  { label: 'filler or placeholder text', re: /\b(lorem ipsum|dolor sit amet|placeholder|dummy text|sample text)\b/i }
+];
+
+/** Returns the kind of boilerplate found, or null when the text is usable. */
+export function findBoilerplateText(value: string): string | null {
+  for (const { label, re } of BOILERPLATE_PATTERNS) {
+    if (re.test(value)) return label;
+  }
+  return null;
+}
+
+/**
+ * A required name-shaped field: bounded like every other string, and refused
+ * when it is official-document or filler copy rather than an actual name.
+ */
+const nameText = (max: number) =>
+  safeText(max).refine(value => findBoilerplateText(value) === null, {
+    message: 'Looks like official-document or placeholder text, not a name.'
+  });
+
 export const customizationOptionSchema = z.object({
   id: z.string().max(64),
   name: safeText(120),
@@ -64,7 +118,7 @@ const categoryIdField = z
 const categoryIconField = z.string().trim().max(16).optional();
 
 export const categoryCreateSchema = z.object({
-  nameUz: safeText(60),
+  nameUz: nameText(60),
   nameRu: z.string().trim().max(60).optional(),
   nameEn: z.string().trim().max(60).optional(),
   icon: categoryIconField,
@@ -73,7 +127,7 @@ export const categoryCreateSchema = z.object({
 
 export const categoryUpdateSchema = z
   .object({
-    nameUz: safeText(60).optional(),
+    nameUz: nameText(60).optional(),
     nameRu: z.string().trim().max(60).optional(),
     nameEn: z.string().trim().max(60).optional(),
     icon: categoryIconField,
@@ -88,9 +142,9 @@ export const categoryReorderSchema = z.object({
 });
 
 export const menuItemCreateSchema = z.object({
-  nameUz: safeText(120),
-  nameRu: safeText(120),
-  nameEn: safeText(120),
+  nameUz: nameText(120),
+  nameRu: nameText(120),
+  nameEn: nameText(120),
   descriptionUz: z.string().trim().max(2000).optional().default(''),
   descriptionRu: z.string().trim().max(2000).optional().default(''),
   descriptionEn: z.string().trim().max(2000).optional().default(''),
@@ -207,14 +261,14 @@ export const phoneLoginSchema = z.object({
 });
 
 export const restaurantRegisterSchema = z.object({
-  name: safeText(150),
+  name: nameText(150),
   phone: phoneField,
   password: z.string().min(6).max(200),
   deliveryEnabled: z.boolean().optional().default(false)
 });
 
 export const ownerCreateRestaurantSchema = z.object({
-  name: safeText(150),
+  name: nameText(150),
   phone: phoneField
 });
 
@@ -251,7 +305,9 @@ export const brandingUpdateSchema = z.object({
     .trim()
     .regex(/^#[0-9a-fA-F]{6}$/, 'brandColor must be a hex color like #f97316')
     .optional(),
-  displayName: safeText(150).optional(),
+  // This writes restaurants.name — the line printed at the top of every
+  // receipt — so it is guarded the same way registration is.
+  displayName: nameText(150).optional(),
   contactPhone: z.string().trim().max(30).optional(),
   contactAddress: safeText(300).optional(),
   contactInstagram: z
@@ -268,7 +324,7 @@ export const waiterCallSchema = z.object({
 });
 
 export const printerSettingsSchema = z.object({
-  printerConnectionType: z.enum(['network', 'usb']).optional(),
+  printerConnectionType: z.enum(['network', 'usb', 'android']).optional(),
   printerIp: z
     .string()
     .trim()

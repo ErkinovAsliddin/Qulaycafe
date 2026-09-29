@@ -1,5 +1,6 @@
 import net from 'net';
 import type { Order } from '../types';
+import { orderDestinationLabel, paymentMethodLabel, paymentStatusLabel } from '../lib/orderLabels';
 
 // ---------------------------------------------------------------------------
 // Minimal ESC/POS command builder — no external dependency needed. Targets
@@ -80,10 +81,32 @@ class ReceiptBuilder {
   }
 }
 
+/**
+ * The printed check, in the order a person reads it: who they paid, where the
+ * order belongs, when it was placed, what was ordered, and the money.
+ *
+ * Deliberately limited to those fields. The order record carries much more
+ * (loyalty accounting, courier ids, internal delivery flags); none of it is
+ * printed, because a slip of paper is read by the guest and the cashier, not by
+ * the system. Every line below is either order data or a label from the shared
+ * order-label map — there is no literal placeholder text in the payload.
+ */
 export function buildReceiptBytes(order: Order, restaurantName: string): Buffer {
-  const b = new ReceiptBuilder().init().align('center').doubleSize(true).bold(true).line(restaurantName);
-  b.doubleSize(false).bold(false);
-  b.line(order.orderType === 'delivery' ? 'DOSTAVKA' : `Stol #${order.tableNumber}`);
+  const b = new ReceiptBuilder().init().align('center');
+
+  // The header is the restaurant's own name, or nothing at all. It is never a
+  // stand-in like "Restoran" — a guest reads the header as the name of the
+  // business they are paying, so a placeholder there is worse than a blank.
+  const header = restaurantName.trim();
+  if (header) {
+    b.doubleSize(true).bold(true).line(header);
+    b.doubleSize(false).bold(false);
+  }
+
+  // Shared with the on-screen order card. A pickup order previously printed
+  // "Stol #0" here, because only delivery was special-cased and 0 is the
+  // "no physical table" sentinel rather than a real table number.
+  b.line(orderDestinationLabel(order));
   b.line(new Date(order.createdAt).toLocaleString('uz-UZ'));
   b.line(`Buyurtma: ${order.id}`);
   b.align('left').divider();
@@ -101,6 +124,14 @@ export function buildReceiptBytes(order: Order, restaurantName: string): Buffer 
   if (order.discount > 0) b.line(`Chegirma: -${order.discount.toLocaleString('uz-UZ')} so'm`);
   b.bold(true).doubleSize(true).line(`JAMI: ${order.totalAmount.toLocaleString('uz-UZ')} so'm`);
   b.doubleSize(false).bold(false);
+
+  // How the order was paid, and whether it is settled — the two things a
+  // cashier reconciles the slip against. Read from the shared label map, so
+  // the receipt and the order card can never disagree about a payment method.
+  b.divider().align('left');
+  b.line(`To'lov usuli: ${paymentMethodLabel(order.paymentMethod)}`);
+  b.line(`To'lov holati: ${paymentStatusLabel(order.paymentStatus)}`);
+
   b.align('center').feed(1).line('Xaridingiz uchun rahmat!').feed(3).cut();
 
   return b.build();
@@ -130,6 +161,29 @@ export function sendToNetworkPrinter(ip: string, port: number, data: Buffer): Pr
     socket.on('error', err => {
       clearTimeout(timeout);
       reject(err);
+    });
+  });
+}
+
+/** Check that a raw-print TCP port is reachable without sending print data. */
+export function checkNetworkPrinter(ip: string, port: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection({ host: ip, port });
+    const timeout = setTimeout(() => {
+      const error = Object.assign(new Error('Printer connection timed out'), { code: 'ETIMEDOUT' });
+      socket.destroy();
+      reject(error);
+    }, 5000);
+
+    socket.once('connect', () => {
+      clearTimeout(timeout);
+      socket.destroy();
+      resolve();
+    });
+
+    socket.once('error', error => {
+      clearTimeout(timeout);
+      reject(error);
     });
   });
 }

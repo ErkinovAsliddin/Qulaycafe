@@ -41,7 +41,7 @@ import {
   reservationCode,
   reservationEvents
 } from './src/server/reservationBot';
-import { buildReceiptBytes, sendToNetworkPrinter } from './src/server/escpos';
+import { buildReceiptBytes, checkNetworkPrinter, sendToNetworkPrinter } from './src/server/escpos';
 import {
   guestOrderUrl,
   clientsBaseUrl as envClientsUrl,
@@ -148,7 +148,8 @@ import {
   reservationUpdateSchema,
   reservationPublicCreateSchema,
   reservationTokenSchema,
-  reviewSubmitSchema
+  reviewSubmitSchema,
+  findBoilerplateText
 } from './src/server/validation';
 import bcrypt from 'bcryptjs';
 import ExcelJS from 'exceljs';
@@ -1603,7 +1604,10 @@ async function startServer() {
     const map: Record<string, string> = {};
     for (const r of rows) map[r.key] = r.value;
     res.json({
-      printerConnectionType: map.printerConnectionType === 'usb' ? 'usb' : 'network',
+      printerConnectionType:
+        map.printerConnectionType === 'usb' || map.printerConnectionType === 'android'
+          ? map.printerConnectionType
+          : 'network',
       printerIp: map.printerIp || '',
       printerPort: Number(map.printerPort) || 9100
     });
@@ -1635,6 +1639,35 @@ async function startServer() {
     }
   );
 
+  // Probe from the same backend/container that sends real receipts. This
+  // confirms the saved route and TCP port without printing a test slip.
+  app.post('/api/admin/printer-test', requireRole('admin'), async (req: Request, res: Response) => {
+    const restaurantId = req.restaurantId as string;
+    const rows = db
+      .prepare(`SELECT key, value FROM settings WHERE restaurant_id = ? AND key IN ('printerIp','printerPort')`)
+      .all(restaurantId) as { key: string; value: string }[];
+    const settings: Record<string, string> = {};
+    for (const row of rows) settings[row.key] = row.value;
+    if (!settings.printerIp) {
+      res.status(400).json({ error: "Avval printer IP manzilini saqlang." });
+      return;
+    }
+    const port = Number(settings.printerPort) || 9100;
+    try {
+      await checkNetworkPrinter(settings.printerIp, port);
+      res.json({ success: true, message: `Printer ${settings.printerIp}:${port} bilan aloqa bor.` });
+    } catch (err: any) {
+      const code = err?.code as string | undefined;
+      const error =
+        code === 'ECONNREFUSED'
+          ? `${settings.printerIp}:${port} javob bermadi. Printer IP manzili va portini tekshiring.`
+          : code === 'ETIMEDOUT' || code === 'EHOSTUNREACH' || code === 'ENETUNREACH'
+            ? `Alibaba serveridan ${settings.printerIp} ga yo'l yo'q. VPN yo'nalishi va routerda LAN'ga ruxsatni tekshiring.`
+            : `Printerga ulanish xatosi${code ? ` (${code})` : ''}. VPN yo'nalishi, printer IP'i va portini tekshiring.`;
+      res.status(502).json({ error });
+    }
+  });
+
   app.get('/api/admin/receipt-bytes/:orderId', requireRole('admin'), (req: Request, res: Response) => {
     const restaurantId = req.restaurantId as string;
     const row = db
@@ -1645,7 +1678,9 @@ async function startServer() {
       return;
     }
     const restaurant = getRestaurantById(restaurantId);
-    const bytes = buildReceiptBytes(JSON.parse(row.data), restaurant?.name || 'Restoran');
+    // Pass the name through untouched: an unset name reaches the builder as
+    // '' and the header is omitted, never replaced by a placeholder.
+    const bytes = buildReceiptBytes(JSON.parse(row.data), restaurant?.name ?? '');
     res.json({ data: bytes.toString('base64') });
   });
 
@@ -1669,11 +1704,20 @@ async function startServer() {
     }
     const restaurant = getRestaurantById(restaurantId);
     try {
-      const bytes = buildReceiptBytes(JSON.parse(row.data), restaurant?.name || 'Restoran');
+      // Pass the name through untouched: an unset name reaches the builder as
+      // '' and the header is omitted, never replaced by a placeholder.
+      const bytes = buildReceiptBytes(JSON.parse(row.data), restaurant?.name ?? '');
       await sendToNetworkPrinter(map.printerIp, Number(map.printerPort) || 9100, bytes);
       res.json({ success: true });
     } catch (err: any) {
-      res.status(502).json({ error: `Printerga ulanib bo'lmadi: ${err?.message || 'unknown error'}` });
+      const code = err?.code as string | undefined;
+      const detail =
+        code === 'ECONNREFUSED'
+          ? `Printer ${map.printerIp}:${Number(map.printerPort) || 9100} manzilida javob bermadi. IP va portni tekshiring (odatda 9100).`
+          : code === 'ETIMEDOUT' || code === 'EHOSTUNREACH' || code === 'ENETUNREACH'
+            ? `Ilova serveri printerga yetib bora olmadi (${map.printerIp}). Server printer tarmog'iga bir LAN yoki VPN orqali ulanganini tekshiring.`
+            : `Printerga ulanish amalga oshmadi${code ? ` (${code})` : ''}. Serverdan printer IP/portiga LAN yoki VPN orqali yo'l borligini tekshiring.`;
+      res.status(502).json({ error: detail });
     }
   });
 
@@ -2875,6 +2919,19 @@ async function startServer() {
         const nameUz = names.uz;
         if (!nameUz) {
           skipped.push({ row, name: '', reason: 'Nomi yo’q.' });
+          return;
+        }
+        // A price list copied out of an official document is a realistic thing
+        // to import, and its boilerplate rows would otherwise become dish names
+        // printed on guests' receipts. Skip the row the way a bad price is
+        // skipped, naming the row so the admin can fix the file.
+        const boilerplate = findBoilerplateText(nameUz);
+        if (boilerplate) {
+          skipped.push({
+            row,
+            name: nameUz,
+            reason: `Nomida rasmiy hujjat matni bor (${boilerplate}).`
+          });
           return;
         }
         const price = coercePrice(raw.price, raw.cost, raw.amount, raw.priceUzs, raw.price_uzs, raw.sellPrice);
