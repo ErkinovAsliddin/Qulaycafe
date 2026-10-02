@@ -1,14 +1,55 @@
 services:
   app:
-    build: .
+    build:
+      context: .
+      # These ARGs are declared in the Dockerfile builder stage.
+      # Vite inlines them into the JS bundle at build time; they
+      # are NOT available at runtime (the runner stage never sees them).
+      # Values are read from .env in the project root.
+      args:
+        VITE_CLIENTS_URL: ${VITE_CLIENTS_URL}
+        VITE_KITCHEN_URL: ${VITE_KITCHEN_URL}
+        VITE_ADMIN_URL: ${VITE_ADMIN_URL}
+        VITE_CONTACT_TELEGRAM: ${VITE_CONTACT_TELEGRAM}
+        VITE_CONTACT_PHONE: ${VITE_CONTACT_PHONE}
+        # Optional exact-hostname overrides — leave blank if unused.
+        VITE_ADMIN_HOSTS: ${VITE_ADMIN_HOSTS:-}
+        VITE_KITCHEN_HOSTS: ${VITE_KITCHEN_HOSTS:-}
+        VITE_CLIENTS_HOSTS: ${VITE_CLIENTS_HOSTS:-}
+        VITE_LANDING_HOSTS: ${VITE_LANDING_HOSTS:-}
+        VITE_ALLOW_SURFACE_OVERRIDE: ${VITE_ALLOW_SURFACE_OVERRIDE:-}
+
     container_name: restaurant-app
     restart: unless-stopped
+
+    # Load all runtime secrets from .env at container start.
+    # .env is listed in .dockerignore so it is never baked into
+    # the image; it is only read by the running container.
+    env_file: .env
+
+    # A few vars are set explicitly here because they describe the
+    # container's own runtime environment, not secrets, and must
+    # always have the right value regardless of .env contents.
+    environment:
+      NODE_ENV: production
+      PORT: "6000"
+      # Full path to the SQLite file inside the container.
+      # db.ts reads this as DATABASE_PATH.
+      DATABASE_PATH: /app/data/restaurant.db
+
     ports:
       - "6000:6000"
-    env_file:
-      - .env
-    volumes:
-      - restaurant-data:/app/data
 
-volumes:
-  restaurant-data:
+    # Bind-mount the host's ./data directory so the production
+    # database persists across rebuilds and is never inside the
+    # image layer. SQLite also writes -wal and -shm sidecar files
+    # here; the node user owns /app/data (set in the Dockerfile).
+    volumes:
+      - ./data:/app/data
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6000/"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3

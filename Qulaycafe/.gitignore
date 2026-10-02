@@ -11,8 +11,11 @@ dist
 # clean no matter what changed in it. Only the build output belongs here.
 /landing
 
-# Live SQLite database and backups
+# Live SQLite database, WAL/SHM sidecar files, and backups
 data
+*.db
+*.db-wal
+*.db-shm
 
 # Secrets and local overrides (.env.example is committed)
 .env

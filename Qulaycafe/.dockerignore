@@ -1,19 +1,33 @@
-# Rebuilt inside the image, and a stale host copy would shadow the build.
+# Dependencies — rebuilt inside the image
 node_modules
+
+# Build outputs — the builder stage creates these from source.
+# A stale host copy would shadow the fresh build.
 dist
 landing
 
-# The GitHub clone of the marketing page's design export (a zip). It is not an
-# input to the build — src/landing/ is.
+# The design-export zip — not an input to any build step
 Land
 
-# Not needed to build, and `data/` holds the live SQLite database — it belongs
-# in the mounted volume, never baked into an image layer.
+# Git metadata
 .git
 .gitignore
+
+# Live database and WAL/SHM sidecar files.
+# The database is bind-mounted at runtime; baking it into the
+# image would be both insecure and wrong.
 data
+*.db
+*.db-wal
+*.db-shm
+
+# Logs
 *.log
 npm-debug.log*
 
-# NOTE: .env is deliberately NOT ignored. `vite build` reads the VITE_* vars
-# from it, and those are compiled into the browser bundle at build time.
+# Secrets — must never be baked into an image layer.
+# Runtime env is injected via `env_file: .env` in compose;
+# build-time VITE_* vars come in through `build: args:`.
+.env
+.env.local
+.env.*.local
