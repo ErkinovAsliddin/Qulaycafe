@@ -81,6 +81,38 @@ class ReceiptBuilder {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Number formatting
+// ---------------------------------------------------------------------------
+// toLocaleString('uz-UZ') uses a NON-BREAKING SPACE (U+00A0) as the thousand
+// separator. Most thermal printer firmware either prints it as '?' or drops it
+// entirely, which breaks right-aligned columns. We format numbers ourselves
+// with a plain ASCII dot separator instead: 12000 → "12.000".
+function fmtNum(n: number): string {
+  return Math.round(n)
+    .toString()
+    .replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
+// ---------------------------------------------------------------------------
+// Two-column line layout
+// ---------------------------------------------------------------------------
+// The printable width of an 80 mm roll at the default 12×24 font is 48
+// characters. We use 42 to leave a small margin and stay safe across firmware
+// variants that differ by a character or two.
+const LINE_WIDTH = 42;
+
+/**
+ * Build a two-column line: left text padded to fill LINE_WIDTH, right text
+ * right-aligned. If the combined length exceeds LINE_WIDTH the left column is
+ * truncated with '…' so the price is always fully visible.
+ */
+function twoCol(left: string, right: string): string {
+  const gap = LINE_WIDTH - right.length;
+  if (gap <= 1) return `${left.slice(0, gap - 1)}… ${right}`;
+  return left.slice(0, gap).padEnd(gap) + right;
+}
+
 /**
  * The printed check, in the order a person reads it: who they paid, where the
  * order belongs, when it was placed, what was ordered, and the money.
@@ -99,38 +131,55 @@ export function buildReceiptBytes(order: Order, restaurantName: string): Buffer 
   // business they are paying, so a placeholder there is worse than a blank.
   const header = restaurantName.trim();
   if (header) {
-    b.doubleSize(true).bold(true).line(header);
-    b.doubleSize(false).bold(false);
+    b.bold(true).line(header);
+    b.bold(false);
   }
 
   // Shared with the on-screen order card. A pickup order previously printed
   // "Stol #0" here, because only delivery was special-cased and 0 is the
   // "no physical table" sentinel rather than a real table number.
   b.line(orderDestinationLabel(order));
-  b.line(new Date(order.createdAt).toLocaleString('uz-UZ'));
+
+  // Format the date/time without locale-specific thousand separators.
+  const d = new Date(order.createdAt);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const dateStr = `${d.getDate()}.${pad(d.getMonth() + 1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  b.line(dateStr);
   b.line(`Buyurtma: ${order.id}`);
   b.align('left').divider();
 
+  // Items: name and price on the same line, right-aligned price column.
   for (const item of order.items) {
-    b.line(`${item.quantity}x ${item.menuItem.name}`);
-    b.align('right').line(`${item.itemTotal.toLocaleString('uz-UZ')} so'm`).align('left');
+    const label = `${item.quantity}x ${item.menuItem.name}`;
+    const price = `${fmtNum(item.itemTotal)} so'm`;
+    b.line(twoCol(label, price));
   }
 
   b.divider();
-  b.align('right');
-  b.line(`Oraliq: ${order.subtotal.toLocaleString('uz-UZ')} so'm`);
-  b.line(`Soliq: ${order.tax.toLocaleString('uz-UZ')} so'm`);
-  b.line(`Xizmat haqi: ${order.serviceCharge.toLocaleString('uz-UZ')} so'm`);
-  if (order.discount > 0) b.line(`Chegirma: -${order.discount.toLocaleString('uz-UZ')} so'm`);
-  b.bold(true).doubleSize(true).line(`JAMI: ${order.totalAmount.toLocaleString('uz-UZ')} so'm`);
-  b.doubleSize(false).bold(false);
+
+  // Totals — plain right-aligned text, no double-size (double-size at 42
+  // chars would overflow the line and wrap unpredictably).
+  const totals: [string, number][] = [
+    [`Oraliq:`, order.subtotal],
+    [`Soliq:`, order.tax],
+    [`Xizmat haqi:`, order.serviceCharge],
+  ];
+  if (order.discount > 0) totals.push([`Chegirma:`, -order.discount]);
+  for (const [label, amount] of totals) {
+    const sign = amount < 0 ? '-' : '';
+    b.line(twoCol(label, `${sign}${fmtNum(Math.abs(amount))} so'm`));
+  }
+
+  // Grand total — bold only (no doubleSize; it overflows on 42-char lines).
+  b.bold(true).line(twoCol(`JAMI:`, `${fmtNum(order.totalAmount)} so'm`));
+  b.bold(false);
 
   // How the order was paid, and whether it is settled — the two things a
   // cashier reconciles the slip against. Read from the shared label map, so
   // the receipt and the order card can never disagree about a payment method.
-  b.divider().align('left');
-  b.line(`To'lov usuli: ${paymentMethodLabel(order.paymentMethod)}`);
-  b.line(`To'lov holati: ${paymentStatusLabel(order.paymentStatus)}`);
+  b.divider();
+  b.line(`To'lov: ${paymentMethodLabel(order.paymentMethod)}`);
+  b.line(`Holat:  ${paymentStatusLabel(order.paymentStatus)}`);
 
   b.align('center').feed(1).line('Xaridingiz uchun rahmat!').feed(3).cut();
 

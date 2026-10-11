@@ -181,6 +181,19 @@ const staffClients: StaffSSEClient[] = [];
 const tableClients: TableSSEClient[] = [];
 const orderClients: OrderSSEClient[] = [];
 
+// SECURITY: Hard cap on concurrent SSE connections to prevent memory exhaustion DoS.
+// An attacker who opens thousands of /api/events/table/:n connections from many IPs
+// would grow the in-process arrays unboundedly until the process OOM-kills itself.
+// These limits are generous for real use (a restaurant has ~5 staff devices and
+// ~50 tables each with a few concurrent diners) while blocking a flood.
+const SSE_MAX_STAFF_TOTAL = Number(process.env.SSE_MAX_STAFF_TOTAL) || 200;
+const SSE_MAX_TABLE_TOTAL = Number(process.env.SSE_MAX_TABLE_TOTAL) || 2000;
+const SSE_MAX_ORDER_TOTAL = Number(process.env.SSE_MAX_ORDER_TOTAL) || 2000;
+// Per-restaurant limits: one tenant cannot fill the global pool alone.
+const SSE_MAX_STAFF_PER_RESTAURANT = Number(process.env.SSE_MAX_STAFF_PER_RESTAURANT) || 30;
+const SSE_MAX_TABLE_PER_RESTAURANT = Number(process.env.SSE_MAX_TABLE_PER_RESTAURANT) || 500;
+const SSE_MAX_ORDER_PER_RESTAURANT = Number(process.env.SSE_MAX_ORDER_PER_RESTAURANT) || 500;
+
 function sseSend(res: Response, type: string, data: unknown) {
   res.write(`data: ${JSON.stringify({ type, data, timestamp: new Date().toISOString() })}\n\n`);
 }
@@ -397,20 +410,52 @@ async function startServer() {
   // so rate limiting and secure cookies see the real client IP/protocol.
   app.set('trust proxy', 1);
 
+  // SECURITY: Force HTTPS in production. Redirect any plain HTTP request to
+  // its HTTPS equivalent with a 301 (permanent) redirect. This fires before
+  // any route handler, so no sensitive data (auth cookies, POST bodies) ever
+  // travels unencrypted. X-Forwarded-Proto is set by Nginx/Cloudflare
+  // upstream; trust proxy:1 above ensures Express reads it correctly.
+  if (isProd) {
+    app.use((req: Request, res: Response, next: NextFunction) => {
+      if (req.secure || req.headers['x-forwarded-proto'] === 'https') {
+        next();
+        return;
+      }
+      res.redirect(301, `https://${req.headers.host}${req.url}`);
+    });
+  }
+
   // --- Security headers ---
   app.use(
     helmet({
+      // SECURITY: HSTS — force HTTPS for all future requests for 1 year.
+      // preload: true opts this domain into browser HSTS preload lists.
+      // includeSubDomains: true ensures kitchen./admin./clients. subdomains
+      // also get HTTPS-forced and cannot be downgraded by a MITM attacker.
+      // Only active in production; dev uses HTTP on localhost.
+      hsts: isProd
+        ? { maxAge: 31536000, includeSubDomains: true, preload: true }
+        : false,
       contentSecurityPolicy: isProd
         ? {
             directives: {
               defaultSrc: ["'self'"],
               imgSrc: ["'self'", 'data:', 'https:'],
-              // telegram.org/js/telegram-web-app.js is loaded by index.html and
-              // is what defines window.Telegram.WebApp — without it in the
-              // allow-list the CSP blocks the script, initData is never seen,
-              // and a guest arriving from the bot's "Buyurtma berish" button
-              // silently loses their verified Telegram identity.
-              scriptSrc: ["'self'", 'https://accounts.google.com/gsi/client', 'https://telegram.org'],
+              // SECURITY: Script sources are pinned to the exact script paths
+              // served by Google and Telegram — not their entire domain.
+              // This prevents any OTHER script on accounts.google.com or
+              // telegram.org from being injected and executing. SRI hashes
+              // are not used here because these SDKs update their content at
+              // the same URL (a hash would break on every Google/Telegram
+              // release), but path-pinning still drastically narrows the
+              // attack surface vs. allowing the full hostname.
+              scriptSrc: [
+                "'self'",
+                // Google Sign-In SDK — exact path, not the whole origin
+                'https://accounts.google.com/gsi/client',
+                // Telegram Web App SDK — exact path
+                'https://telegram.org/js/telegram-web-app.js'
+              ],
               // The landing page pulls its typefaces from Google Fonts: the
               // stylesheet is style-src (the font files themselves fall under
               // helmet's default font-src 'self' https: data:), so without this
@@ -439,18 +484,44 @@ async function startServer() {
       // of null (reading 'postMessage')"). 'same-origin-allow-popups' keeps
       // the isolation for framing/Spectre purposes but still lets an opened
       // popup talk back to us.
-      crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' }
+      crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
+      // SECURITY: Prevent MIME-type sniffing — tells browsers not to
+      // override the Content-Type header. Without this, IE/Edge may
+      // re-interpret a JSON response as HTML, enabling XSS via sniffing.
+      noSniff: true,
+      // SECURITY: Limit Referer header leakage. 'strict-origin-when-cross-origin'
+      // sends the full URL only for same-origin requests; only the origin
+      // (no path/query) for cross-origin HTTPS→HTTPS; nothing for HTTPS→HTTP.
+      referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+      // SECURITY: Prevent embedding this site in iframes on other origins.
+      // This blocks clickjacking attacks. frameAncestors in CSP above is the
+      // modern mechanism; X-Frame-Options is the legacy fallback for older
+      // browsers.
+      frameguard: { action: 'deny' }
     })
   );
 
-  // --- CORS: only allow explicitly configured origins (never "*") ---
+  // --- CORS: explicitly configured origins only — deny-by-default ---
+  // SECURITY: An empty ALLOWED_ORIGINS must mean "deny all cross-origin requests",
+  // NOT "allow everyone". The old code had `allowedOrigins.length === 0` as a
+  // pass-through, which meant an unconfigured deployment was fully open to CSRF
+  // and cross-origin data theft from any website. Removed that branch entirely.
   const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(o => o.trim()).filter(Boolean);
+  if (allowedOrigins.length === 0) {
+    logger.warn('ALLOWED_ORIGINS is not set — all cross-origin requests will be blocked. Set ALLOWED_ORIGINS in .env.');
+  }
   app.use(
     cors({
       origin: (origin, callback) => {
-        if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+        // Same-origin requests (no Origin header) are always allowed.
+        // Cross-origin requests are only allowed if the origin is on the explicit allowlist.
+        if (!origin) {
+          callback(null, true);
+        } else if (allowedOrigins.includes(origin)) {
           callback(null, true);
         } else {
+          // Log blocked origins in dev to help diagnose misconfiguration.
+          if (!isProd) logger.warn({ origin }, 'CORS: blocked origin not in ALLOWED_ORIGINS');
           callback(new Error('Not allowed by CORS'));
         }
       },
@@ -459,8 +530,12 @@ async function startServer() {
   );
 
   app.use(cookieParser());
-  app.use(express.json({ limit: '8mb' })); // uploaded photos are base64-encoded in the request body
-  app.use(express.urlencoded({ limit: '8mb', extended: true }));
+  // SECURITY: Body size limits reduced from 8MB to 2MB for JSON/form data.
+  // 2MB is more than enough for any legitimate API payload including base64
+  // images (a 1MB photo encodes to ~1.37MB base64). 8MB exposed the server
+  // to DoS via deliberate oversized POST bodies that forced full JSON parse.
+  app.use(express.json({ limit: '2mb' }));
+  app.use(express.urlencoded({ limit: '2mb', extended: true }));
   app.use(pinoHttp({ logger, redact: ['req.headers.cookie', 'req.headers.authorization'] }));
 
   // ---------------------------------------------------------------------
@@ -684,6 +759,13 @@ async function startServer() {
   // restaurantId comes from the session (req.restaurantId), never from the
   // client, so one restaurant's staff can never subscribe to another's feed.
   app.get('/api/events', requireRole('admin', 'kitchen'), (req: Request, res: Response) => {
+    // SECURITY: Enforce connection caps before opening the SSE stream.
+    const rid = req.restaurantId as string;
+    const perRest = staffClients.filter(c => c.restaurantId === rid).length;
+    if (staffClients.length >= SSE_MAX_STAFF_TOTAL || perRest >= SSE_MAX_STAFF_PER_RESTAURANT) {
+      res.status(503).json({ error: 'Too many concurrent connections. Please try again later.' });
+      return;
+    }
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
@@ -693,7 +775,7 @@ async function startServer() {
     // refresh to see new orders" even though the server sent them instantly.
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders();
-    const client: StaffSSEClient = { res, restaurantId: req.restaurantId as string };
+    const client: StaffSSEClient = { res, restaurantId: rid };
     staffClients.push(client);
     req.on('close', () => {
       const idx = staffClients.indexOf(client);
@@ -710,12 +792,19 @@ async function startServer() {
       res.status(400).end();
       return;
     }
+    // SECURITY: Enforce connection caps before opening the SSE stream.
+    const rid = req.restaurantId as string;
+    const perRest = tableClients.filter(c => c.restaurantId === rid).length;
+    if (tableClients.length >= SSE_MAX_TABLE_TOTAL || perRest >= SSE_MAX_TABLE_PER_RESTAURANT) {
+      res.status(503).json({ error: 'Too many concurrent connections. Please try again later.' });
+      return;
+    }
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders();
-    const client: TableSSEClient = { res, restaurantId: req.restaurantId as string, tableNumber };
+    const client: TableSSEClient = { res, restaurantId: rid, tableNumber };
     tableClients.push(client);
     req.on('close', () => {
       const idx = tableClients.indexOf(client);
@@ -729,12 +818,19 @@ async function startServer() {
   // this is scoped to exactly one order instead.
   app.get('/api/events/order/:orderId', requirePublicRestaurant, (req: Request, res: Response) => {
     const orderId = req.params.orderId;
+    // SECURITY: Enforce connection caps before opening the SSE stream.
+    const rid = req.restaurantId as string;
+    const perRest = orderClients.filter(c => c.restaurantId === rid).length;
+    if (orderClients.length >= SSE_MAX_ORDER_TOTAL || perRest >= SSE_MAX_ORDER_PER_RESTAURANT) {
+      res.status(503).json({ error: 'Too many concurrent connections. Please try again later.' });
+      return;
+    }
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders();
-    const client: OrderSSEClient = { res, restaurantId: req.restaurantId as string, orderId };
+    const client: OrderSSEClient = { res, restaurantId: rid, orderId };
     orderClients.push(client);
     req.on('close', () => {
       const idx = orderClients.indexOf(client);

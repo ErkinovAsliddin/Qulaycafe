@@ -294,8 +294,13 @@ export const settingsUpdateSchema = z.object({
   message: 'At least one of taxPercent or serviceFeePercent is required'
 });
 
+// SECURITY: Minimum password length raised from 4 to 8 characters.
+// A 4-character minimum allows passwords like "1234" or "pass" that any
+// script-kiddie wordlist cracks in milliseconds. 8 characters with the
+// brute-force lockout (5 attempts → 15-min lockout in auth.ts) makes
+// online guessing attacks infeasible even against common passwords.
 export const changePasswordSchema = z.object({
-  newPassword: z.string().min(4).max(200)
+  newPassword: z.string().min(8, 'Password must be at least 8 characters').max(200)
 });
 
 export const brandingUpdateSchema = z.object({
