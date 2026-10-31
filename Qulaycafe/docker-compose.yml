@@ -38,7 +38,7 @@ services:
       DATABASE_PATH: /app/data/restaurant.db
 
     ports:
-      - "6000:6000"
+      - "127.0.0.1:6000:6000"
 
     # Bind-mount the host's ./data directory so the production
     # database persists across rebuilds and is never inside the

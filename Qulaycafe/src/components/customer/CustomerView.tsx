@@ -1,5 +1,5 @@
 import { useCurrency } from '../../utils/CurrencyContext';
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { MenuItem, MenuCategory, Category, Order } from '../../types';
 import { Search, Clock, Utensils, ShoppingBag, Plus, Check, SlidersHorizontal, ChefHat, Sparkles, QrCode, ArrowRight, Bell, BellRing, Globe, Coins, CalendarDays } from 'lucide-react';
 import { Language, translations, getLocalizedMenuItem } from '../../lib/translations';
@@ -112,15 +112,37 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
     ? selectedCategory
     : 'all';
 
-  // Filtered menu logic
-  const filteredItems = menuItems.filter(rawItem => {
-    const item = getLocalizedMenuItem(rawItem, lang);
-    const matchesCategory = effectiveCategory === 'all' || item.category === effectiveCategory;
-    const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          rawItem.name.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesCategory && matchesSearch;
-  });
+  // Category order mapping for consistent category-based display order
+  const categoryOrderMap = useMemo(() => {
+    const map = new Map<string, number>();
+    categories.forEach((cat, index) => {
+      map.set(cat.id, cat.sortOrder ?? index);
+    });
+    return map;
+  }, [categories]);
+
+  // Filtered menu logic — always ordered by category sequence first, then item sortOrder, then name
+  const filteredItems = useMemo(() => {
+    const items = menuItems.filter(rawItem => {
+      const item = getLocalizedMenuItem(rawItem, lang);
+      const matchesCategory = effectiveCategory === 'all' || item.category === effectiveCategory;
+      const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                            item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                            rawItem.name.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchesCategory && matchesSearch;
+    });
+
+    return items.sort((a, b) => {
+      const catOrderA = a.category && categoryOrderMap.has(a.category) ? categoryOrderMap.get(a.category)! : 9999;
+      const catOrderB = b.category && categoryOrderMap.has(b.category) ? categoryOrderMap.get(b.category)! : 9999;
+      if (catOrderA !== catOrderB) return catOrderA - catOrderB;
+
+      const sa = (a as any).sortOrder ?? 9999;
+      const sb = (b as any).sortOrder ?? 9999;
+      if (sa !== sb) return sa - sb;
+      return (a.name || '').localeCompare(b.name || '');
+    });
+  }, [menuItems, lang, effectiveCategory, searchQuery, categoryOrderMap]);
 
   // Featured Hero Item (first chef recommendation or special)
   const rawFeatured = menuItems.find(i => i.dietary.includes('chef-recommendation') && i.isAvailable) || menuItems[0];
@@ -135,6 +157,115 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
     setTimeout(() => {
       setRecentlyAddedId(null);
     }, 1200);
+  };
+
+  const renderDishCard = (rawDish: MenuItem) => {
+    const dish = getLocalizedMenuItem(rawDish, lang);
+    const isRecentlyAdded = recentlyAddedId === dish.id;
+
+    return (
+      <div
+        key={dish.id}
+        onClick={() => dish.isAvailable && onSelectItem(rawDish)}
+        className={`group bg-white dark:bg-zinc-900 border border-zinc-200/90 dark:border-zinc-700/80 hover:border-orange-400 dark:hover:border-orange-500 rounded-2xl p-2.5 sm:p-3.5 shadow-xs transition-all duration-200 flex flex-col justify-between ${
+          !dish.isAvailable
+            ? 'opacity-60 cursor-not-allowed'
+            : 'cursor-pointer hover:shadow-md'
+        }`}
+      >
+        <div>
+          {/* Food Image Container */}
+          <div className="w-full h-28 sm:h-36 bg-zinc-100 dark:bg-zinc-800 rounded-xl overflow-hidden relative mb-2">
+            <img
+              src={dish.image}
+              alt={dish.name}
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+              referrerPolicy="no-referrer"
+              loading="lazy"
+              decoding="async"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
+
+            {/* Availability Badge */}
+            <div className="absolute top-1.5 left-1.5 flex flex-col space-y-1">
+              {!dish.isAvailable && (
+                <span className="bg-zinc-900 text-white font-black text-[9px] px-1.5 py-0.5 rounded-md">
+                  {t.soldOut}
+                </span>
+              )}
+            </div>
+
+            {/* Prep Time Badge */}
+            <div className="absolute top-1.5 right-1.5 flex items-center space-x-0.5 text-[9px] text-white bg-black/60 backdrop-blur-md px-1.5 py-0.5 rounded-md font-semibold">
+              <Clock className="w-2.5 h-2.5 text-orange-400" />
+              <span>{t.prepTime.replace('{mins}', String(dish.prepTimeMinutes))}</span>
+            </div>
+
+            {/* Price Tag */}
+            <div className="absolute bottom-1.5 left-2 text-white font-black text-sm sm:text-lg drop-shadow-md">
+              {formatPrice(dish.price)}
+            </div>
+
+            {/* Customizer Option Gear Trigger */}
+            {dish.isAvailable && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSelectItem(rawDish);
+                }}
+                className="absolute bottom-1.5 right-1.5 bg-black/60 hover:bg-black/80 text-white p-1 rounded-lg backdrop-blur-md transition-colors"
+                title="Customize Options"
+              >
+                <SlidersHorizontal className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+
+          {/* Card Content */}
+          <div>
+            <h4 className="font-extrabold text-xs sm:text-sm text-zinc-900 dark:text-zinc-100 group-hover:text-orange-600 dark:group-hover:text-orange-400 transition-colors line-clamp-1 leading-snug">
+              {dish.name}
+            </h4>
+            <p className="text-[10px] sm:text-xs text-zinc-500 dark:text-zinc-400 mt-0.5 line-clamp-2 leading-tight">
+              {dish.description}
+            </p>
+          </div>
+        </div>
+
+        {/* Card Bottom Direct Add Action */}
+        <div className="mt-2.5 pt-2 border-t border-zinc-100 dark:border-zinc-800">
+          {dish.isAvailable ? (
+            <button
+              onClick={(e) => handleQuickAdd(e, rawDish)}
+              className={`w-full py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center space-x-1 shadow-xs active:scale-95 ${
+                isRecentlyAdded
+                  ? 'bg-green-600 text-white'
+                  : 'bg-orange-500 hover:bg-orange-600 text-white'
+              }`}
+            >
+              {isRecentlyAdded ? (
+                <>
+                  <Check className="w-3.5 h-3.5" />
+                  <span>{t.added}</span>
+                </>
+              ) : (
+                <>
+                  <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                  <span>{t.addToOrder}</span>
+                </>
+              )}
+            </button>
+          ) : (
+            <button
+              disabled
+              className="w-full bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500 py-2 rounded-xl text-xs font-bold cursor-not-allowed"
+            >
+              {t.soldOut}
+            </button>
+          )}
+        </div>
+      </div>
+    );
   };
 
   const getStatusStep = (status: string) => {
@@ -469,119 +600,57 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
           <p className="text-zinc-800 dark:text-zinc-200 font-bold text-xs sm:text-sm">{t.noDishesFound}</p>
           <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1">{t.tryResetFilters}</p>
         </div>
-      ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-4 md:gap-5">
-          {filteredItems.map((rawDish) => {
-            const dish = getLocalizedMenuItem(rawDish, lang);
-            const isRecentlyAdded = recentlyAddedId === dish.id;
+      ) : effectiveCategory === 'all' && !searchQuery.trim() ? (
+        <div className="space-y-6">
+          {categories
+            .filter(cat => cat.isActive)
+            .map(cat => {
+              const catDishes = filteredItems.filter(item => item.category === cat.id);
+              if (catDishes.length === 0) return null;
+              const catLabel = (lang === 'ru' ? cat.nameRu : lang === 'en' ? cat.nameEn : cat.nameUz) || cat.nameUz;
 
+              return (
+                <div key={cat.id} className="space-y-2.5">
+                  <div className="flex items-center space-x-2 px-1">
+                    <span className="text-base sm:text-lg">{cat.icon || '🍽️'}</span>
+                    <h3 className="font-extrabold text-sm sm:text-base text-zinc-900 dark:text-zinc-100">
+                      {catLabel}
+                    </h3>
+                    <span className="text-[10px] sm:text-xs font-bold text-zinc-400 dark:text-zinc-500 bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-full">
+                      {catDishes.length}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-4 md:gap-5">
+                    {catDishes.map(renderDishCard)}
+                  </div>
+                </div>
+              );
+            })}
+          {(() => {
+            const activeCatIds = new Set(categories.filter(c => c.isActive).map(c => c.id));
+            const orphanDishes = filteredItems.filter(item => !activeCatIds.has(item.category));
+            if (orphanDishes.length === 0) return null;
             return (
-              <div
-                key={dish.id}
-                onClick={() => dish.isAvailable && onSelectItem(rawDish)}
-                className={`group bg-white dark:bg-zinc-900 border border-zinc-200/90 dark:border-zinc-700/80 hover:border-orange-400 dark:hover:border-orange-500 rounded-2xl p-2.5 sm:p-3.5 shadow-xs transition-all duration-200 flex flex-col justify-between ${
-                  !dish.isAvailable
-                    ? 'opacity-60 cursor-not-allowed'
-                    : 'cursor-pointer hover:shadow-md'
-                }`}
-              >
-                <div>
-                  {/* Food Image Container */}
-                  <div className="w-full h-28 sm:h-36 bg-zinc-100 dark:bg-zinc-800 rounded-xl overflow-hidden relative mb-2">
-                    <img
-                      src={dish.image}
-                      alt={dish.name}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                      referrerPolicy="no-referrer"
-                      // Photos are their own requests now, so the dishes below the
-                      // fold cost nothing until they are scrolled to.
-                      loading="lazy"
-                      decoding="async"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
-
-                    {/* Availability Badge */}
-                    <div className="absolute top-1.5 left-1.5 flex flex-col space-y-1">
-                      {!dish.isAvailable && (
-                        <span className="bg-zinc-900 text-white font-black text-[9px] px-1.5 py-0.5 rounded-md">
-                          {t.soldOut}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Prep Time Badge */}
-                    <div className="absolute top-1.5 right-1.5 flex items-center space-x-0.5 text-[9px] text-white bg-black/60 backdrop-blur-md px-1.5 py-0.5 rounded-md font-semibold">
-                      <Clock className="w-2.5 h-2.5 text-orange-400" />
-                      <span>{t.prepTime.replace('{mins}', String(dish.prepTimeMinutes))}</span>
-                    </div>
-
-                    {/* Price Tag */}
-                    <div className="absolute bottom-1.5 left-2 text-white font-black text-sm sm:text-lg drop-shadow-md">
-                      {formatPrice(dish.price)}
-                    </div>
-
-                    {/* Customizer Option Gear Trigger */}
-                    {dish.isAvailable && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onSelectItem(rawDish);
-                        }}
-                        className="absolute bottom-1.5 right-1.5 bg-black/60 hover:bg-black/80 text-white p-1 rounded-lg backdrop-blur-md transition-colors"
-                        title="Customize Options"
-                      >
-                        <SlidersHorizontal className="w-3 h-3" />
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Card Content */}
-                  <div>
-                    <h4 className="font-extrabold text-xs sm:text-sm text-zinc-900 dark:text-zinc-100 group-hover:text-orange-600 dark:group-hover:text-orange-400 transition-colors line-clamp-1 leading-snug">
-                      {dish.name}
-                    </h4>
-                    <p className="text-[10px] sm:text-xs text-zinc-500 dark:text-zinc-400 mt-0.5 line-clamp-2 leading-tight">
-                      {dish.description}
-                    </p>
-                  </div>
+              <div className="space-y-2.5">
+                <div className="flex items-center space-x-2 px-1">
+                  <span className="text-base sm:text-lg">🍽️</span>
+                  <h3 className="font-extrabold text-sm sm:text-base text-zinc-900 dark:text-zinc-100">
+                    {lang === 'ru' ? 'Другое' : lang === 'en' ? 'Other' : 'Boshqa'}
+                  </h3>
+                  <span className="text-[10px] sm:text-xs font-bold text-zinc-400 dark:text-zinc-500 bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-full">
+                    {orphanDishes.length}
+                  </span>
                 </div>
-
-                {/* Card Bottom Direct Add Action */}
-                <div className="mt-2.5 pt-2 border-t border-zinc-100 dark:border-zinc-800">
-                  {dish.isAvailable ? (
-                    <button
-                      onClick={(e) => handleQuickAdd(e, rawDish)}
-                      className={`w-full py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center space-x-1 shadow-xs active:scale-95 ${
-                        isRecentlyAdded
-                          ? 'bg-green-600 text-white'
-                          : 'bg-orange-500 hover:bg-orange-600 text-white'
-                      }`}
-                    >
-                      {isRecentlyAdded ? (
-                        <>
-                          <Check className="w-3.5 h-3.5" />
-                          <span>{t.added}</span>
-                        </>
-                      ) : (
-                        <>
-                          <Plus className="w-3.5 h-3.5 stroke-[3]" />
-                          <span>{t.addToOrder}</span>
-                        </>
-                      )}
-                    </button>
-                  ) : (
-                    <button
-                      disabled
-                      className="w-full bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500 py-2 rounded-xl text-xs font-bold cursor-not-allowed"
-                    >
-                      {t.soldOut}
-                    </button>
-                  )}
+                <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-4 md:gap-5">
+                  {orphanDishes.map(renderDishCard)}
                 </div>
-
               </div>
             );
-          })}
+          })()}
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-4 md:gap-5">
+          {filteredItems.map(renderDishCard)}
         </div>
       )}
 

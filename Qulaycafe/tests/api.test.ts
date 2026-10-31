@@ -983,6 +983,32 @@ describe('menu backup export / import', () => {
   });
 });
 
+describe('menu item ordering by category', () => {
+  it('sorts dishes by category sequence first, then by dish sortOrder within the category', async () => {
+    const categories = await (await fetch(`${BASE_URL}/api/categories`)).json();
+    const menu = await (await fetch(`${BASE_URL}/api/menu`)).json();
+
+    const catIndexMap = new Map<string, number>();
+    categories.forEach((c: any, idx: number) => {
+      catIndexMap.set(c.id, c.sortOrder ?? idx);
+    });
+
+    for (let i = 0; i < menu.length - 1; i++) {
+      const a = menu[i];
+      const b = menu[i + 1];
+      const catOrderA = a.category && catIndexMap.has(a.category) ? catIndexMap.get(a.category)! : 9999;
+      const catOrderB = b.category && catIndexMap.has(b.category) ? catIndexMap.get(b.category)! : 9999;
+      
+      expect(catOrderA).toBeLessThanOrEqual(catOrderB);
+      if (catOrderA === catOrderB) {
+        const sa = a.sortOrder ?? 9999;
+        const sb = b.sortOrder ?? 9999;
+        expect(sa).toBeLessThanOrEqual(sb);
+      }
+    }
+  });
+});
+
 describe('courier invite links', () => {
   it('refuses to create an invite while delivery is switched off', async () => {
     const res = await fetch(`${BASE_URL}/api/admin/couriers/invites`, {

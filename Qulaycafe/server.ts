@@ -329,7 +329,20 @@ function readMenu(restaurantId: string): MenuItem[] {
     .prepare('SELECT data FROM menu_items WHERE restaurant_id = ?')
     .all(restaurantId) as { data: string }[];
   const items = rows.map(r => normalizeMenuItem(JSON.parse(r.data)));
+
+  const categoryRows = db
+    .prepare('SELECT id, sort_order FROM categories WHERE restaurant_id = ? ORDER BY sort_order ASC, id ASC')
+    .all(restaurantId) as { id: string; sort_order: number }[];
+  const categoryOrderMap = new Map<string, number>();
+  categoryRows.forEach((c, idx) => {
+    categoryOrderMap.set(c.id, c.sort_order ?? idx);
+  });
+
   return items.sort((a, b) => {
+    const catOrderA = a.category && categoryOrderMap.has(a.category) ? categoryOrderMap.get(a.category)! : 9999;
+    const catOrderB = b.category && categoryOrderMap.has(b.category) ? categoryOrderMap.get(b.category)! : 9999;
+    if (catOrderA !== catOrderB) return catOrderA - catOrderB;
+
     const sa = (a as any).sortOrder ?? 9999;
     const sb = (b as any).sortOrder ?? 9999;
     if (sa !== sb) return sa - sb;
@@ -2334,6 +2347,8 @@ async function startServer() {
       }
 
       broadcastCategories(restaurantId);
+      broadcastTableAll(restaurantId, 'MENU_UPDATED', readMenu(restaurantId));
+      broadcastStaff(restaurantId, 'MENU_UPDATED', readMenu(restaurantId));
       res.json(listCategories(restaurantId, true));
     }
   );
