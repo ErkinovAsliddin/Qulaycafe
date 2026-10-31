@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Order, OrderStatus, WaiterCall } from '../../types';
-import { ChefHat, Clock, CheckCircle2, AlertCircle, Play, Bell, Check, Flame, Utensils, BellRing, Send } from 'lucide-react';
+import { ChefHat, Clock, CheckCircle2, AlertCircle, Play, Bell, Check, Flame, Utensils, BellRing, Send, Printer } from 'lucide-react';
 import { playOrderChimeSound } from '../../utils/audio';
 import { Language, translations } from '../../lib/translations';
 
@@ -20,6 +20,8 @@ interface KitchenDisplayProps {
   onCheckTelegramLinkStatus?: (token: string) => Promise<any>;
   onUnlinkTelegram?: () => Promise<boolean>;
   telegramLinked?: boolean;
+  /** Print a receipt/KOT for an order directly from the kitchen screen. */
+  onPrintReceipt?: (order: Order) => void;
 }
 
 export const KitchenDisplay: React.FC<KitchenDisplayProps> = ({
@@ -31,7 +33,8 @@ export const KitchenDisplay: React.FC<KitchenDisplayProps> = ({
   onGenerateTelegramLink,
   onCheckTelegramLinkStatus,
   onUnlinkTelegram,
-  telegramLinked = false
+  telegramLinked = false,
+  onPrintReceipt
 }) => {
   const t = translations[lang];
   const [filter, setFilter] = useState<'all' | 'pending' | 'preparing' | 'ready'>('all');
@@ -497,6 +500,17 @@ export const KitchenDisplay: React.FC<KitchenDisplayProps> = ({
                     >
                       <CheckCircle2 className="w-4 h-4 text-green-600" />
                       <span>{t.markServed}</span>
+                    </button>
+                  )}
+
+                  {/* Print receipt / KOT button — available for all statuses */}
+                  {onPrintReceipt && (
+                    <button
+                      onClick={() => onPrintReceipt(order)}
+                      className="mt-2 w-full bg-white hover:bg-zinc-50 text-zinc-700 border border-zinc-200 font-bold py-2 rounded-xl flex items-center justify-center space-x-2 transition-all text-xs active:scale-95"
+                    >
+                      <Printer className="w-3.5 h-3.5" />
+                      <span>Chek chop etish</span>
                     </button>
                   )}
                 </div>

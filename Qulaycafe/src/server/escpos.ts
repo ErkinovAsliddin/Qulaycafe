@@ -161,9 +161,9 @@ export function buildReceiptBytes(order: Order, restaurantName: string): Buffer 
   // chars would overflow the line and wrap unpredictably).
   const totals: [string, number][] = [
     [`Oraliq:`, order.subtotal],
-    [`Soliq:`, order.tax],
-    [`Xizmat haqi:`, order.serviceCharge],
   ];
+  if (order.tax > 0) totals.push([`Soliq:`, order.tax]);
+  if (order.serviceCharge > 0) totals.push([`Xizmat haqi:`, order.serviceCharge]);
   if (order.discount > 0) totals.push([`Chegirma:`, -order.discount]);
   for (const [label, amount] of totals) {
     const sign = amount < 0 ? '-' : '';

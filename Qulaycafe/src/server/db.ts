@@ -2488,6 +2488,53 @@ export function reorderCategories(restaurantId: string, ids: string[]): ReorderC
   })();
 }
 
+/**
+ * Rewrites sortOrder inside each menu item's JSON blob for the given ids array.
+ * ids must contain ALL item ids in a category (or ALL items if categoryId is null).
+ * If ids don't match the full set, returns { status: 'stale' }.
+ */
+export interface ReorderMenuItemsResult {
+  status: 'ok' | 'unknown_ids' | 'stale';
+  unknown?: string[];
+  expectedCount?: number;
+  receivedCount?: number;
+}
+
+export function reorderMenuItems(
+  restaurantId: string,
+  categoryId: string,
+  ids: string[]
+): ReorderMenuItemsResult {
+  return db.transaction((): ReorderMenuItemsResult => {
+    const rows = db
+      .prepare(`SELECT id, data FROM menu_items WHERE restaurant_id = ?`)
+      .all(restaurantId) as { id: string; data: string }[];
+
+    // Filter to just the category
+    const catRows = rows.filter(r => {
+      try { return JSON.parse(r.data).category === categoryId; } catch { return false; }
+    });
+
+    const known = new Set(catRows.map(r => r.id));
+    const unknown = ids.filter(id => !known.has(id));
+    if (unknown.length) return { status: 'unknown_ids', unknown };
+    if (ids.length !== known.size) {
+      return { status: 'stale', expectedCount: known.size, receivedCount: ids.length };
+    }
+
+    const update = db.prepare('UPDATE menu_items SET data = ? WHERE restaurant_id = ? AND id = ?');
+    const now = new Date().toISOString();
+    ids.forEach((id, index) => {
+      const row = catRows.find(r => r.id === id)!;
+      const item = JSON.parse(row.data);
+      item.sortOrder = index;
+      item.updatedAt = now;
+      update.run(JSON.stringify(item), restaurantId, id);
+    });
+    return { status: 'ok' };
+  })();
+}
+
 // ---------------------------------------------------------------------------
 // Legacy demo seed data — only used in local dev so the app isn't empty out
 // of the box. Real restaurants that sign up via /api/restaurants/register

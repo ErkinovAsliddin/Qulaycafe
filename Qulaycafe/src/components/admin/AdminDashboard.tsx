@@ -1,6 +1,8 @@
 import { formatSom } from '../../utils/currency';
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { MenuItem, MenuCategory, Order, Table, LoyaltyMember, OrderStatus, WaiterCall, CustomizationGroup } from '../../types';
+import { MenuItemSortableList } from './MenuItemSortableList';
+import { PosScreen } from './PosScreen';
 import {
   orderDestinationBadge,
   orderStatusLabel,
@@ -13,6 +15,7 @@ import {
   QrCode,
   DollarSign,
   ShoppingBag,
+  ShoppingCart,
   Users,
   Utensils,
   Plus,
@@ -32,6 +35,7 @@ import {
   Clock,
   CreditCard,
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
   Phone,
   Mail,
@@ -294,7 +298,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   lang
 }) => {
   const t = translations[lang];
-  const [activeTab, setActiveTab] = useState<'overview' | 'tables' | 'inventory' | 'categories' | 'orders' | 'qr' | 'analytics' | 'branding' | 'delivery' | 'reservations' | 'security'>('overview');
+  const [activeTab, setActiveTab] = useState<'pos' | 'overview' | 'tables' | 'inventory' | 'categories' | 'orders' | 'qr' | 'analytics' | 'branding' | 'delivery' | 'reservations' | 'security'>('overview');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [selectedQRTable, setSelectedQRTable] = useState<number>(1);
   const [isMoreSheetOpen, setIsMoreSheetOpen] = useState<boolean>(false);
   // Everything money-shaped here counts PAID orders only ("collected"), which
@@ -468,6 +473,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     skippedCount?: number;
     skipped?: { row: number; name: string; reason: string }[];
   } | null>(null);
+
+  const handleMenuReorder = useCallback(async (categoryId: string, ids: string[]) => {
+    await fetch('/api/admin/menu-items/reorder', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categoryId, ids }),
+    });
+  }, []);
 
   const handleExportMenu = async () => {
     try {
@@ -1003,8 +1016,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <table>${itemsHtml}</table>
           <table class="totals">
             <tr><td>Oraliq summa</td><td style="text-align:right">${formatSom(order.subtotal)}</td></tr>
-            <tr><td>Soliq</td><td style="text-align:right">${formatSom(order.tax)}</td></tr>
-            <tr><td>Xizmat haqi</td><td style="text-align:right">${formatSom(order.serviceCharge)}</td></tr>
+            ${order.tax > 0 ? `<tr><td>Soliq</td><td style="text-align:right">${formatSom(order.tax)}</td></tr>` : ''}
+            ${order.serviceCharge > 0 ? `<tr><td>Xizmat haqi</td><td style="text-align:right">${formatSom(order.serviceCharge)}</td></tr>` : ''}
             ${order.discount > 0 ? `<tr><td>Chegirma</td><td style="text-align:right">-${formatSom(order.discount)}</td></tr>` : ''}
             <tr class="grand"><td>JAMI</td><td style="text-align:right">${formatSom(order.totalAmount)}</td></tr>
           </table>
@@ -1035,17 +1048,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const printThermalReceipt = async (order: Order) => {
     if (printerConnectionType === 'android') {
-      try {
-        // RawBT is configured on the phone with the XP-80U's LAN IP and
-        // port 9100. The app accepts the raw ESC/POS receipt we already
-        // generate on the website, so it preserves formatting and paper cut.
-        const res = await fetch(`/api/admin/receipt-bytes/${order.id}`);
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok || !data.data) throw new Error(data.error || "Chek ma'lumotini olish imkoni bo'lmadi.");
-        window.location.href = `rawbt:base64,${data.data}`;
-      } catch (err: any) {
-        window.alert(err?.message || "RawBT uchun chek ma'lumotini tayyorlab bo'lmadi.");
-      }
+      // Open ESC/POS print service (com.farminos.print) registers itself as a
+      // standard Android PrintService. The browser print dialog lists it as a
+      // printer option alongside any other printers configured on the phone.
+      // No custom URL scheme, no VPN — just tap the button and pick the app.
+      printReceipt(order);
       return;
     }
 
@@ -1148,6 +1155,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Primary destinations — always one tap away, on both the desktop
   // sidebar and the mobile bottom bar.
   const primaryNavItems: { id: typeof activeTab; label: string; icon: any; badge?: number }[] = [
+    { id: 'pos', label: 'Kassa', icon: ShoppingCart },
     { id: 'overview', label: t.overview, icon: LayoutDashboard },
     { id: 'orders', label: t.ordersList, icon: ShoppingBag, badge: pendingOrdersCount || undefined },
     { id: 'tables', label: t.tableMap, icon: LayoutGrid },
@@ -1188,44 +1196,61 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     <div className="flex min-h-screen bg-zinc-50">
 
       {/* DESKTOP SIDEBAR */}
-      <aside className="hidden md:flex md:flex-col md:w-60 md:shrink-0 bg-white border-r border-zinc-200 sticky top-0 h-screen overflow-y-auto">
-        <div className="p-5 border-b border-zinc-100">
-          <div className="flex items-center space-x-2.5">
-            {branding?.logoUrl ? (
+      <aside className={`hidden md:flex md:flex-col md:shrink-0 bg-white border-r border-zinc-200 sticky top-0 h-screen overflow-y-auto transition-all duration-200 ${sidebarCollapsed ? 'md:w-16' : 'md:w-60'}`}>
+        {/* Logo / brand header */}
+        <div className={`border-b border-zinc-100 ${sidebarCollapsed ? 'p-3 flex justify-center' : 'p-5'}`}>
+          {sidebarCollapsed ? (
+            branding?.logoUrl ? (
               <img src={branding.logoUrl} alt="Logo" className="w-9 h-9 rounded-xl object-cover" />
             ) : (
               <div className="w-9 h-9 rounded-xl bg-orange-500 text-white flex items-center justify-center font-black text-sm shrink-0">
                 {(branding?.restaurantName || 'B').charAt(0).toUpperCase()}
               </div>
-            )}
-            <div className="overflow-hidden">
-              <p className="text-sm font-black text-zinc-900 truncate">{branding?.restaurantName || t.admin}</p>
-              <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-wide">Boshqaruv paneli</p>
+            )
+          ) : (
+            <div className="flex items-center space-x-2.5">
+              {branding?.logoUrl ? (
+                <img src={branding.logoUrl} alt="Logo" className="w-9 h-9 rounded-xl object-cover" />
+              ) : (
+                <div className="w-9 h-9 rounded-xl bg-orange-500 text-white flex items-center justify-center font-black text-sm shrink-0">
+                  {(branding?.restaurantName || 'B').charAt(0).toUpperCase()}
+                </div>
+              )}
+              <div className="overflow-hidden">
+                <p className="text-sm font-black text-zinc-900 truncate">{branding?.restaurantName || t.admin}</p>
+                <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-wide">Boshqaruv paneli</p>
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         <nav className="flex-1 p-3 space-y-5 overflow-y-auto">
           <div className="space-y-0.5">
-            <p className="px-2.5 text-[10px] font-black text-zinc-400 uppercase tracking-wider mb-1.5">Operatsiyalar</p>
+            {!sidebarCollapsed && (
+              <p className="px-2.5 text-[10px] font-black text-zinc-400 uppercase tracking-wider mb-1.5">Operatsiyalar</p>
+            )}
             {primaryNavItems.map(item => {
               const Icon = item.icon;
               return (
                 <button
                   key={item.id}
                   onClick={() => setActiveTab(item.id)}
-                  className={`w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-xs font-bold transition-colors ${
-                    activeTab === item.id ? 'bg-orange-50 text-orange-700' : 'text-zinc-600 hover:bg-zinc-50'
-                  }`}
+                  title={sidebarCollapsed ? item.label : undefined}
+                  className={`w-full flex items-center rounded-xl text-xs font-bold transition-colors ${
+                    sidebarCollapsed ? 'justify-center px-2 py-2.5 relative' : 'justify-between px-2.5 py-2'
+                  } ${activeTab === item.id ? 'bg-orange-50 text-orange-700' : 'text-zinc-600 hover:bg-zinc-50'}`}
                 >
-                  <span className="flex items-center space-x-2.5">
-                    <Icon className="w-4 h-4" />
-                    <span>{item.label}</span>
+                  <span className={`flex items-center ${sidebarCollapsed ? '' : 'space-x-2.5'}`}>
+                    <Icon className="w-4 h-4 shrink-0" />
+                    {!sidebarCollapsed && <span>{item.label}</span>}
                   </span>
-                  {!!item.badge && (
+                  {!!item.badge && !sidebarCollapsed && (
                     <span className="bg-rose-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
                       {item.badge}
                     </span>
+                  )}
+                  {!!item.badge && sidebarCollapsed && (
+                    <span className="absolute top-1 right-1 bg-rose-500 w-2 h-2 rounded-full" />
                   )}
                 </button>
               );
@@ -1234,25 +1259,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
           {secondaryNavGroups.map(group => (
             <div key={group.title} className="space-y-0.5">
-              <p className="px-2.5 text-[10px] font-black text-zinc-400 uppercase tracking-wider mb-1.5">{group.title}</p>
+              {!sidebarCollapsed && (
+                <p className="px-2.5 text-[10px] font-black text-zinc-400 uppercase tracking-wider mb-1.5">{group.title}</p>
+              )}
               {group.items.map(item => {
                 const Icon = item.icon;
                 return (
                   <button
                     key={item.id}
                     onClick={() => setActiveTab(item.id)}
-                    className={`w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-xs font-bold transition-colors ${
-                      activeTab === item.id ? 'bg-orange-50 text-orange-700' : 'text-zinc-600 hover:bg-zinc-50'
-                    }`}
+                    title={sidebarCollapsed ? item.label : undefined}
+                    className={`w-full flex items-center rounded-xl text-xs font-bold transition-colors ${
+                      sidebarCollapsed ? 'justify-center px-2 py-2.5 relative' : 'justify-between px-2.5 py-2'
+                    } ${activeTab === item.id ? 'bg-orange-50 text-orange-700' : 'text-zinc-600 hover:bg-zinc-50'}`}
                   >
-                    <span className="flex items-center space-x-2.5">
-                      <Icon className="w-4 h-4" />
-                      <span>{item.label}</span>
+                    <span className={`flex items-center ${sidebarCollapsed ? '' : 'space-x-2.5'}`}>
+                      <Icon className="w-4 h-4 shrink-0" />
+                      {!sidebarCollapsed && <span>{item.label}</span>}
                     </span>
-                    {!!item.badge && (
+                    {!!item.badge && !sidebarCollapsed && (
                       <span className="bg-rose-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
                         {item.badge}
                       </span>
+                    )}
+                    {!!item.badge && sidebarCollapsed && (
+                      <span className="absolute top-1 right-1 bg-rose-500 w-2 h-2 rounded-full" />
                     )}
                   </button>
                 );
@@ -1261,19 +1292,35 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           ))}
         </nav>
 
-        <div className="p-3 border-t border-zinc-100">
+        {/* Collapse toggle + lock button */}
+        <div className="p-3 border-t border-zinc-100 space-y-2">
+          <button
+            onClick={() => setSidebarCollapsed(c => !c)}
+            title={sidebarCollapsed ? 'Kengaytirish' : 'Kichraytirish'}
+            className={`w-full bg-zinc-50 hover:bg-zinc-100 text-zinc-500 hover:text-zinc-700 text-xs font-bold py-2 rounded-xl flex items-center border border-zinc-200 transition-colors ${sidebarCollapsed ? 'justify-center px-2' : 'justify-center space-x-1.5 px-3'}`}
+          >
+            {sidebarCollapsed ? (
+              <ChevronRight className="w-4 h-4" />
+            ) : (
+              <>
+                <ChevronLeft className="w-3.5 h-3.5" />
+                <span>Kichraytirish</span>
+              </>
+            )}
+          </button>
           <button
             onClick={onLockAdmin}
-            className="w-full bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-xs font-bold px-3 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 border border-zinc-200 transition-colors"
+            title={sidebarCollapsed ? t.logout : undefined}
+            className={`w-full bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-xs font-bold py-2.5 rounded-xl flex items-center border border-zinc-200 transition-colors ${sidebarCollapsed ? 'justify-center px-2' : 'justify-center space-x-1.5 px-3'}`}
           >
-            <Lock className="w-3.5 h-3.5 text-orange-500" />
-            <span>{t.logout}</span>
+            <Lock className="w-3.5 h-3.5 text-orange-500 shrink-0" />
+            {!sidebarCollapsed && <span>{t.logout}</span>}
           </button>
         </div>
       </aside>
 
       {/* MAIN CONTENT */}
-      <div className="flex-1 min-w-0 pb-20 md:pb-0">
+      <div className="flex-1 min-w-0 pb-20 md:pb-0 flex flex-col">
 
         {/* MOBILE TOP BAR (sidebar replaces this on desktop) */}
         <div className="md:hidden bg-white border-b border-zinc-200 px-4 py-3 flex items-center justify-between sticky top-0 z-20">
@@ -1292,8 +1339,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </button>
         </div>
 
-        <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-6">
+        {/* POS Kassa — full height, no padding wrapper */}
+        {activeTab === 'pos' && (
+          <PosScreen
+            menuItems={menuItems}
+            categories={categories}
+            tables={tables}
+            orders={orders}
+            onOrderCreated={() => setActiveTab('orders')}
+          />
+        )}
 
+        {activeTab !== 'pos' && (
+        <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-6 w-full">
       {/* Waiter Call Banner */}
       {waiterCalls.filter(c => c.status === 'pending').length > 0 && (
         <div className="bg-rose-600 text-white rounded-2xl p-4 shadow-lg space-y-2">
@@ -1631,71 +1689,125 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           )}
 
-          {/* Inventory Items Table */}
-          <div className="overflow-x-auto custom-scrollbar">
-            <table className="w-full text-left text-xs text-zinc-700">
-              <thead className="bg-zinc-100 text-zinc-500 uppercase tracking-wider text-[10px]">
-                <tr>
-                  <th className="p-3 rounded-l-xl">{t.dishName}</th>
-                  <th className="p-3">{t.category}</th>
-                  <th className="p-3">{t.price}</th>
-                  <th className="p-3">Status</th>
-                  <th className="p-3 rounded-r-xl text-right">{t.actions}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-100">
-                {menuItems.map(item => (
-                  <tr key={item.id} className="hover:bg-zinc-50 transition-colors">
-                    <td className="p-3 flex items-center space-x-3">
-                      <img
-                        src={item.image}
-                        alt={item.name}
-                        className="w-10 h-10 rounded-xl object-cover shrink-0 border border-zinc-200"
-                        referrerPolicy="no-referrer"
-                      />
-                      <div>
-                        <div className="font-bold text-zinc-900">{item.name}</div>
-                        <div className="text-[10px] text-zinc-500 truncate max-w-xs">{item.description}</div>
+          {/* Inventory Items — grouped by category with drag-to-reorder */}
+          <div className="space-y-6">
+            {/* Header row (desktop only) */}
+            <div className="hidden sm:grid grid-cols-[1fr_140px_100px_90px_80px] gap-2 px-3 text-[10px] font-black text-zinc-400 uppercase tracking-wider border-b border-zinc-100 pb-2">
+              <span>{t.dishName}</span>
+              <span>{t.category}</span>
+              <span>{t.price}</span>
+              <span>Status</span>
+              <span className="text-right">{t.actions}</span>
+            </div>
+
+            {categories.filter(c => c.isActive).map(cat => {
+              const catItems = menuItems.filter(m => m.category === cat.id);
+              if (catItems.length === 0) return null;
+              return (
+                <div key={cat.id}>
+                  <p className="text-[11px] font-black text-zinc-400 uppercase tracking-wider px-1 mb-2">
+                    {cat.icon} {cat.nameUz}
+                    <span className="ml-1 text-zinc-300 font-bold">({catItems.length})</span>
+                  </p>
+                  <div className="bg-white border border-zinc-100 rounded-2xl overflow-hidden">
+                    <MenuItemSortableList
+                      items={catItems}
+                      categoryId={cat.id}
+                      onReorder={handleMenuReorder}
+                      renderItem={item => (
+                        <div className="grid grid-cols-1 sm:grid-cols-[1fr_140px_100px_90px_80px] gap-2 items-center px-3 py-2.5 hover:bg-zinc-50 transition-colors border-b border-zinc-50 last:border-0">
+                          {/* Name + image */}
+                          <div className="flex items-center space-x-3">
+                            <img
+                              src={item.image}
+                              alt={item.name}
+                              className="w-10 h-10 rounded-xl object-cover shrink-0 border border-zinc-200"
+                              referrerPolicy="no-referrer"
+                            />
+                            <div>
+                              <div className="font-bold text-zinc-900 text-xs">{item.name}</div>
+                              <div className="text-[10px] text-zinc-500 truncate max-w-xs">{item.description}</div>
+                            </div>
+                          </div>
+                          {/* Category */}
+                          <span className="hidden sm:block font-bold text-orange-600 text-xs">{categoryLabel(item.category)}</span>
+                          {/* Price */}
+                          <span className="hidden sm:block font-extrabold text-zinc-900 text-xs">{formatSom(item.price)}</span>
+                          {/* Availability */}
+                          <div className="hidden sm:block">
+                            <button
+                              onClick={() => handleToggleAvailability(item)}
+                              className={`px-3 py-1 rounded-md text-[10px] font-bold border transition-colors ${
+                                item.isAvailable
+                                  ? 'bg-green-50 text-green-800 border-green-200'
+                                  : 'bg-rose-50 text-rose-800 border-rose-200'
+                              }`}
+                            >
+                              {item.isAvailable ? t.inStock : t.soldOut}
+                            </button>
+                          </div>
+                          {/* Actions */}
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              onClick={() => startEditDish(item)}
+                              className="p-1.5 bg-zinc-100 hover:bg-orange-50 text-zinc-700 hover:text-orange-600 rounded-lg text-xs font-bold border border-zinc-200 transition-colors"
+                              title={t.editDish}
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setItemToDelete(item)}
+                              className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg text-xs font-bold border border-rose-200 transition-colors"
+                              title={t.deleteDish}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Items with no active category */}
+            {(() => {
+              const activeCatIds = new Set(categories.filter(c => c.isActive).map(c => c.id));
+              const orphans = menuItems.filter(m => !activeCatIds.has(m.category));
+              if (orphans.length === 0) return null;
+              return (
+                <div>
+                  <p className="text-[11px] font-black text-zinc-400 uppercase tracking-wider px-1 mb-2">
+                    Boshqa taomlar <span className="text-zinc-300 font-bold">({orphans.length})</span>
+                  </p>
+                  <div className="bg-white border border-zinc-100 rounded-2xl overflow-hidden divide-y divide-zinc-50">
+                    {orphans.map(item => (
+                      <div key={item.id} className="grid grid-cols-1 sm:grid-cols-[1fr_140px_100px_90px_80px] gap-2 items-center px-3 py-2.5 hover:bg-zinc-50 transition-colors">
+                        <div className="flex items-center space-x-3">
+                          <img src={item.image} alt={item.name} className="w-10 h-10 rounded-xl object-cover shrink-0 border border-zinc-200" referrerPolicy="no-referrer" />
+                          <div>
+                            <div className="font-bold text-zinc-900 text-xs">{item.name}</div>
+                            <div className="text-[10px] text-zinc-500 truncate max-w-xs">{item.description}</div>
+                          </div>
+                        </div>
+                        <span className="hidden sm:block font-bold text-orange-600 text-xs">{categoryLabel(item.category)}</span>
+                        <span className="hidden sm:block font-extrabold text-zinc-900 text-xs">{formatSom(item.price)}</span>
+                        <div className="hidden sm:block">
+                          <button onClick={() => handleToggleAvailability(item)} className={`px-3 py-1 rounded-md text-[10px] font-bold border transition-colors ${item.isAvailable ? 'bg-green-50 text-green-800 border-green-200' : 'bg-rose-50 text-rose-800 border-rose-200'}`}>
+                            {item.isAvailable ? t.inStock : t.soldOut}
+                          </button>
+                        </div>
+                        <div className="flex items-center justify-end gap-1">
+                          <button onClick={() => startEditDish(item)} className="p-1.5 bg-zinc-100 hover:bg-orange-50 text-zinc-700 hover:text-orange-600 rounded-lg text-xs font-bold border border-zinc-200 transition-colors" title={t.editDish}><Edit className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => setItemToDelete(item)} className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg text-xs font-bold border border-rose-200 transition-colors" title={t.deleteDish}><Trash2 className="w-3.5 h-3.5" /></button>
+                        </div>
                       </div>
-                    </td>
-
-                    <td className="p-3 font-bold text-orange-600">{categoryLabel(item.category)}</td>
-                    <td className="p-3 font-extrabold text-zinc-900">{formatSom(item.price)}</td>
-
-                    <td className="p-3">
-                      <button
-                        onClick={() => handleToggleAvailability(item)}
-                        className={`px-3 py-1 rounded-md text-[10px] font-bold border transition-colors ${
-                          item.isAvailable
-                            ? 'bg-green-50 text-green-800 border-green-200'
-                            : 'bg-rose-50 text-rose-800 border-rose-200'
-                        }`}
-                      >
-                        {item.isAvailable ? t.inStock : t.soldOut}
-                      </button>
-                    </td>
-
-                    <td className="p-3 text-right space-x-2">
-                      <button
-                        onClick={() => startEditDish(item)}
-                        className="p-1.5 bg-zinc-100 hover:bg-orange-50 text-zinc-700 hover:text-orange-600 rounded-lg text-xs font-bold border border-zinc-200 transition-colors"
-                        title={t.editDish}
-                      >
-                        <Edit className="w-3.5 h-3.5" />
-                      </button>
-
-                      <button
-                        onClick={() => setItemToDelete(item)}
-                        className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg text-xs font-bold border border-rose-200 transition-colors"
-                        title={t.deleteDish}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
@@ -3449,12 +3561,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <span>Termal printer</span>
             </div>
             <p className="text-xs text-zinc-500">
-              “Telefon / Windows” rejimi telefon yoki kompyuterning print oynasini ochadi: qurilmadagi print xizmati printerga mahalliy Wi-Fi orqali ulanadi. “LAN / Wi-Fi” rejimida esa Alibaba serveri printerga VPN yoki bevosita tarmoq orqali ulanadi.
+              Chek chiqarish rejimini tanlang. <strong>Telefon (Android)</strong> &mdash; brauzer print oynasini ochadi, Open ESC/POS ilovasi printer sifatida koʼrinadi. <strong>LAN / Wi-Fi</strong> &mdash; server printerga toʼgʼridan toʼgʼri IP orqali yuboradi. <strong>Windows</strong> &mdash; kompyuter print oynasi.
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               {([
                 { value: 'network', label: 'LAN / Wi-Fi', hint: 'IP manzil orqali' },
-                { value: 'android', label: 'Android (RawBT)', hint: 'Telefon → printer, VPN kerak emas' },
+                { value: 'android', label: 'Telefon (Android)', hint: 'Open ESC/POS orqali, bepul' },
                 { value: 'usb', label: 'Windows', hint: 'Kompyuter print oynasi orqali' }
               ] as const).map(option => (
                 <button
@@ -3497,13 +3609,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
             {printerConnectionType === 'usb' && (
               <p className="text-[11px] font-bold text-zinc-500">
-                Android: XP-80U LAN/ESC-POS’ni qo‘llaydigan print xizmatini o‘rnating, unda printer IP’i va 9100 portini qo‘shing. So‘ng “Termal” tugmasi Android print oynasini ochadi. Windows: Xprinter drayverini o‘rnating va 80 mm qog‘ozni tanlang.
+                Windows: Xprinter / XP-80U drayverini oʼrnating, 80 mm qogʼoz tanlang. "Termal" tugmasi brauzer print oynasini ochadi — oʼsha yerda printerni tanlang.
               </p>
             )}
             {printerConnectionType === 'android' && (
-              <p className="text-[11px] font-bold text-zinc-500">
-                Android telefoningizga RawBT ilovasini o‘rnating. RawBT ichida Wi-Fi / Ethernet’ni tanlang, XP-80U IP manzilini va 9100 portini kiriting, so‘ng uning test chop etishini bajaring. “Termal” tugmasi chekni RawBT’ga yuboradi.
-              </p>
+              <div className="space-y-2 rounded-xl bg-orange-50 border border-orange-200 p-3">
+                <p className="text-[11px] font-black text-orange-900">Telefon orqali chop etish &mdash; qanday sozlash:</p>
+                <ol className="text-[11px] text-orange-800 space-y-1 list-decimal list-inside">
+                  <li>Google Play&apos;dan <strong>Open ESC/POS print service</strong> ilovasini oʼrnating (bepul, ID: com.farminos.print).</li>
+                  <li>Ilovani oching &rarr; &quot;+&quot; &rarr; &quot;Network&quot; &rarr; printer IP (masalan 192.168.1.50) va port 9100 kiriting.</li>
+                  <li>Printer va telefon bir xil Wi-Fi tarmogʼida boʼlsin.</li>
+                  <li>Quyidagi &quot;Saqlash&quot; tugmasini bosing, soʼng buyurtmada <strong>Termal</strong> tugmasini bosing.</li>
+                  <li>Brauzer print oynasida <strong>Open ESC/POS print service</strong> ni tanlang &mdash; chek chiqadi.</li>
+                </ol>
+                <a
+                  href="https://play.google.com/store/apps/details?id=com.farminos.print"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block mt-1 text-[11px] font-bold text-orange-700 underline"
+                >
+                  Google Play&apos;da ochish
+                </a>
+              </div>
             )}
             <button
               onClick={async () => {
@@ -4505,8 +4632,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
     </div>
+    )}
 
-        </div>
+      </div>
 
       {/* MOBILE BOTTOM TAB BAR */}
       <nav className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-white border-t border-zinc-200 flex items-stretch shadow-[0_-2px_10px_rgba(0,0,0,0.04)]">

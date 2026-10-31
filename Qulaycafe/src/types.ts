@@ -51,6 +51,7 @@ export interface MenuItem {
   isAvailable: boolean;
   dietary: DietaryTag[];
   prepTimeMinutes: number;
+  sortOrder?: number;
   calories?: number;
   customizations?: CustomizationGroup[];
 }

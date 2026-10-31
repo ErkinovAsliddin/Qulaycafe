@@ -106,7 +106,8 @@ import {
   dishRatingSummaries,
   readMenuItemCosts,
   setMenuItemCost,
-  deleteMenuItemCost
+  deleteMenuItemCost,
+  reorderMenuItems
 } from './src/server/db';
 import {
   requireRole,
@@ -324,9 +325,16 @@ function normalizeMenuItem(raw: any): MenuItem {
   return item;
 }
 function readMenu(restaurantId: string): MenuItem[] {
-  return (
-    db.prepare('SELECT data FROM menu_items WHERE restaurant_id = ?').all(restaurantId) as { data: string }[]
-  ).map(r => normalizeMenuItem(JSON.parse(r.data)));
+  const rows = db
+    .prepare('SELECT data FROM menu_items WHERE restaurant_id = ?')
+    .all(restaurantId) as { data: string }[];
+  const items = rows.map(r => normalizeMenuItem(JSON.parse(r.data)));
+  return items.sort((a, b) => {
+    const sa = (a as any).sortOrder ?? 9999;
+    const sb = (b as any).sortOrder ?? 9999;
+    if (sa !== sb) return sa - sb;
+    return (a.name || '').localeCompare(b.name || '');
+  });
 }
 // Onboarding dismissal is a per-restaurant setting rather than client state:
 // the wizard must not come back on the next login, or on another device.
@@ -2330,6 +2338,35 @@ async function startServer() {
     }
   );
 
+  // Reorder menu items within a category
+  app.patch(
+    '/api/admin/menu-items/reorder',
+    requireRole('admin'),
+    requireActiveSubscription,
+    (req: Request, res: Response) => {
+      const restaurantId = req.restaurantId as string;
+      const { categoryId, ids } = req.body;
+      if (!categoryId || typeof categoryId !== 'string' || !Array.isArray(ids) || ids.length > 500) {
+        res.status(400).json({ error: 'categoryId (string) and ids[] (max 500) required' });
+        return;
+      }
+      if (!ids.every(id => typeof id === 'string' && id.length < 100)) {
+        res.status(400).json({ error: 'Invalid id format in ids[]' });
+        return;
+      }
+      const result = reorderMenuItems(restaurantId, categoryId, ids);
+      if (result.status === 'ok') {
+        broadcastStaff(restaurantId, 'MENU_UPDATED', readMenu(restaurantId));
+        broadcastTableAll(restaurantId, 'MENU_UPDATED', readMenu(restaurantId));
+        res.json({ ok: true });
+      } else if (result.status === 'unknown_ids') {
+        res.status(400).json({ error: 'Unknown item ids', unknown: result.unknown });
+      } else {
+        res.status(409).json({ error: 'Stale reorder — refresh and try again', ...result });
+      }
+    }
+  );
+
   app.put(
     '/api/admin/categories/:id',
     requireRole('admin'),
@@ -3429,6 +3466,238 @@ async function startServer() {
       }
 
       res.status(201).json(newOrder);
+    }
+  );
+
+  // Admin/cashier creates an order directly from the POS screen.
+  // Unlike POST /api/orders (customer-facing), this endpoint:
+  // - Requires an admin session (no public restaurant lookup needed)
+  // - Has no rate limiting
+  // - Skips loyalty point redemption (staff don't redeem points on behalf of customers at POS)
+  // - Marks order as 'dine_in' by default
+  app.post(
+    '/api/admin/orders/create',
+    requireRole('admin'),
+    requireActiveSubscription,
+    (req: Request, res: Response) => {
+      const restaurantId = req.restaurantId as string;
+      const { tableNumber, customerName, items, paymentMethod, orderNote, orderType, discount, servicePercent } = req.body;
+
+      if (!Array.isArray(items) || items.length === 0 || items.length > 100) {
+        res.status(400).json({ error: 'items[] required (max 100)' });
+        return;
+      }
+
+      const menu = readMenu(restaurantId);
+      let recomputedSubtotal = 0;
+      for (const cartItem of items) {
+        const menuItem = menu.find(m => m.id === cartItem?.menuItem?.id);
+        if (!menuItem) {
+          res.status(400).json({ error: `Menu item ${cartItem?.menuItem?.id} does not exist` });
+          return;
+        }
+        const qty = Math.min(100, Math.max(1, Math.floor(Number(cartItem.quantity) || 1)));
+        const basePrice = (typeof (cartItem as any).customPrice === 'number' && (cartItem as any).customPrice >= 0)
+          ? Math.round((cartItem as any).customPrice)
+          : menuItem.price;
+        (cartItem as any).customPrice = basePrice;
+        cartItem.quantity = qty;
+        cartItem.itemTotal = basePrice * qty;
+        recomputedSubtotal += cartItem.itemTotal;
+      }
+
+      const { serviceFeePercent } = readSettings(restaurantId);
+      const appliedServicePercent = (typeof servicePercent === 'number' && servicePercent >= 0 && servicePercent <= 100)
+        ? servicePercent
+        : serviceFeePercent;
+      const tax = 0; // Soliq olib tashlandi (tax removed per requirement)
+      const serviceCharge = Math.round((recomputedSubtotal * appliedServicePercent) / 100);
+
+      // Validate and cap discount so it cannot exceed subtotal or be negative
+      const requestedDiscount = Math.max(0, Math.floor(Number(discount) || 0));
+      const authoritativeDiscount = Math.min(recomputedSubtotal, requestedDiscount);
+      const total = Math.max(0, recomputedSubtotal + tax + serviceCharge - authoritativeDiscount);
+
+      const orderId =
+        'ORD-' +
+        Date.now().toString(36).toUpperCase() +
+        '-' +
+        Array.from(crypto.randomBytes(5), b => '0123456789ABCDEFGHJKMNPQRSTVWXYZ'[b & 31]).join('');
+
+      const cleanTableNumber = Math.max(0, Math.floor(Number(tableNumber) || 0));
+      const cleanCustomerName =
+        (typeof customerName === 'string' && customerName.trim().slice(0, 80)) ||
+        (cleanTableNumber ? `Stol #${cleanTableNumber}` : 'Kassa buyurtmasi');
+      const cleanPaymentMethod = paymentMethod === 'card' ? 'card' : 'cash';
+      const cleanNote = typeof orderNote === 'string' && orderNote.trim() ? orderNote.trim().slice(0, 300) : undefined;
+      const cleanOrderType = ['dine_in', 'pickup', 'delivery'].includes(orderType) ? orderType : 'dine_in';
+
+      const newOrder: Order = {
+        id: orderId,
+        tableNumber: cleanTableNumber,
+        customerName: cleanCustomerName,
+        customerPhoneOrEmail: '',
+        items,
+        subtotal: recomputedSubtotal,
+        tax,
+        serviceCharge,
+        discount: authoritativeDiscount,
+        totalAmount: total,
+        status: 'pending',
+        paymentStatus: cleanPaymentMethod === 'card' ? 'paid' : 'unpaid',
+        paymentMethod: cleanPaymentMethod,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        estimatedMinutes: 15,
+        loyaltyPointsEarned: 0,
+        loyaltyPointsRedeemed: 0,
+        orderNote: cleanNote,
+        orderType: cleanOrderType,
+      };
+
+      db.prepare('INSERT INTO orders (restaurant_id, id, table_number, data, created_at) VALUES (?, ?, ?, ?, ?)').run(
+        restaurantId,
+        newOrder.id,
+        newOrder.tableNumber,
+        JSON.stringify(newOrder),
+        newOrder.createdAt
+      );
+
+      if (newOrder.tableNumber) {
+        const tableRow = db
+          .prepare('SELECT data FROM tables WHERE restaurant_id = ? AND table_number = ?')
+          .get(restaurantId, newOrder.tableNumber) as { data: string } | undefined;
+        if (tableRow) {
+          const t: Table = JSON.parse(tableRow.data);
+          t.status = 'eating';
+          t.currentOrderId = orderId;
+          t.activeItemsCount = items.length;
+          db.prepare('UPDATE tables SET data = ? WHERE restaurant_id = ? AND table_number = ?').run(
+            JSON.stringify(t), restaurantId, t.tableNumber
+          );
+        }
+      }
+
+      req.log.info({ orderId, restaurantId }, 'admin-created order');
+      broadcastStaff(restaurantId, 'ORDER_CREATED', { order: newOrder });
+      if (newOrder.tableNumber) {
+        broadcastTable(restaurantId, newOrder.tableNumber, 'ORDER_CREATED', { order: publicOrderView(newOrder) });
+      }
+
+      res.status(201).json(newOrder);
+    }
+  );
+
+  // Admin/cashier appends additional dishes to an existing open order (e.g. Table 5 ordered more items)
+  app.post(
+    '/api/admin/orders/:id/append-items',
+    requireRole('admin'),
+    requireActiveSubscription,
+    (req: Request, res: Response) => {
+      const restaurantId = req.restaurantId as string;
+      const { id } = req.params;
+      const { items, orderNote, servicePercent, discount } = req.body;
+
+      if (!Array.isArray(items) || items.length === 0 || items.length > 100) {
+        res.status(400).json({ error: 'items[] required (max 100)' });
+        return;
+      }
+
+      const row = db.prepare('SELECT data FROM orders WHERE restaurant_id = ? AND id = ?').get(restaurantId, id) as
+        | { data: string }
+        | undefined;
+      if (!row) {
+        res.status(404).json({ error: 'Buyurtma topilmadi' });
+        return;
+      }
+
+      const order: Order = JSON.parse(row.data);
+      if (order.status === 'paid' || order.status === 'cancelled') {
+        res.status(400).json({ error: 'To‘langan yoki bekor qilingan buyurtmaga taom qo‘shib bo‘lmaydi' });
+        return;
+      }
+
+      const menu = readMenu(restaurantId);
+      const newlyAddedItems: any[] = [];
+
+      for (const cartItem of items) {
+        const menuItem = menu.find(m => m.id === cartItem?.menuItem?.id);
+        if (!menuItem) {
+          res.status(400).json({ error: `Menu item ${cartItem?.menuItem?.id} does not exist` });
+          return;
+        }
+        const qty = Math.min(100, Math.max(1, Math.floor(Number(cartItem.quantity) || 1)));
+        const basePrice = (typeof (cartItem as any).customPrice === 'number' && (cartItem as any).customPrice >= 0)
+          ? Math.round((cartItem as any).customPrice)
+          : menuItem.price;
+        (cartItem as any).customPrice = basePrice;
+        cartItem.quantity = qty;
+        cartItem.itemTotal = basePrice * qty;
+        newlyAddedItems.push(cartItem);
+      }
+
+      // Append new items to existing order items
+      order.items = [...order.items, ...newlyAddedItems];
+
+      // Recalculate full subtotal
+      let fullSubtotal = 0;
+      for (const it of order.items) {
+        fullSubtotal += it.itemTotal;
+      }
+      order.subtotal = fullSubtotal;
+
+      const { serviceFeePercent } = readSettings(restaurantId);
+      const appliedServicePercent = (typeof servicePercent === 'number' && servicePercent >= 0 && servicePercent <= 100)
+        ? servicePercent
+        : serviceFeePercent;
+
+      order.tax = 0; // Soliq olib tashlandi
+      order.serviceCharge = Math.round((fullSubtotal * appliedServicePercent) / 100);
+
+      const requestedDiscount = typeof discount === 'number' ? Math.max(0, Math.floor(discount)) : (order.discount || 0);
+      order.discount = Math.min(fullSubtotal, requestedDiscount);
+      order.totalAmount = Math.max(0, fullSubtotal + order.serviceCharge - order.discount);
+      order.updatedAt = new Date().toISOString();
+
+      if (orderNote && typeof orderNote === 'string' && orderNote.trim()) {
+        order.orderNote = order.orderNote ? `${order.orderNote} | ${orderNote.trim().slice(0, 200)}` : orderNote.trim().slice(0, 300);
+      }
+
+      db.prepare('UPDATE orders SET data = ? WHERE restaurant_id = ? AND id = ?').run(
+        JSON.stringify(order),
+        restaurantId,
+        order.id
+      );
+
+      // Keep table items count in sync
+      if (order.tableNumber) {
+        const tableRow = db
+          .prepare('SELECT data FROM tables WHERE restaurant_id = ? AND table_number = ?')
+          .get(restaurantId, order.tableNumber) as { data: string } | undefined;
+        if (tableRow) {
+          const t: Table = JSON.parse(tableRow.data);
+          t.activeItemsCount = order.items.length;
+          db.prepare('UPDATE tables SET data = ? WHERE restaurant_id = ? AND table_number = ?').run(
+            JSON.stringify(t), restaurantId, t.tableNumber
+          );
+        }
+      }
+
+      req.log.info({ orderId: order.id, restaurantId, addedCount: newlyAddedItems.length }, 'items appended to existing order');
+      broadcastStaff(restaurantId, 'ORDER_UPDATED', { order, newlyAddedItems });
+      if (order.tableNumber) {
+        broadcastTable(restaurantId, order.tableNumber, 'ORDER_UPDATED', { order: publicOrderView(order) });
+      }
+      broadcastOrder(restaurantId, order.id, 'ORDER_UPDATED', { order });
+
+      const owningRestaurant = getRestaurantById(restaurantId);
+      if (owningRestaurant?.admin_telegram_chat_id) {
+        const itemsSummary = newlyAddedItems.map((ci: any) => `${ci.quantity}x ${ci.menuItem.name}`).join(', ');
+        const adminMessage = `➕ Qo'shimcha zakaz — Stol #${order.tableNumber}\n${itemsSummary}\nYangi JAMI: ${order.totalAmount.toLocaleString('uz-UZ')} so'm`;
+        sendTelegramMessage(owningRestaurant.admin_telegram_chat_id, adminMessage).catch(() => {});
+      }
+
+      res.json(order);
     }
   );
 

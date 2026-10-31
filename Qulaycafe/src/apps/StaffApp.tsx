@@ -776,6 +776,99 @@ export default function StaffApp({ surface }: { surface: Extract<Surface, 'admin
   const showOnboarding =
     surface === 'admin' && staffStateLoaded && tables.length === 0 && !onboardingDismissed;
 
+  // Opens a print-only popup with a clean receipt layout and triggers the
+  // browser's native print dialog. Works on any device (phone, tablet, desktop)
+  // — the browser handles the printer selection, including any printer that the
+  // phone/device has already set up (e.g. via the OS or a print-service app).
+  const printKitchenReceipt = (order: Order) => {
+    const win = window.open('', '_blank', 'width=380,height=600');
+    if (!win) {
+      window.alert("Chek oynasi ochilmadi. Brauzerda pop-up oynalarga ruxsat bering.");
+      return;
+    }
+    const escapeMap: Record<string, string> = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    };
+    const escapeHtml = (value: string) => String(value).replace(/[&<>"']/g, c => escapeMap[c] ?? c);
+    const fmtNum = (n: number) =>
+      Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    const receiptName = (branding?.restaurantName || '').trim();
+    const itemsHtml = order.items
+      .map(
+        i =>
+          `<tr><td>${i.quantity}x ${escapeHtml(i.menuItem.name)}${
+            i.selectedCustomizations.length
+              ? `<br><small style="color:#c2410c">${i.selectedCustomizations.map(c => c.optionName).join(', ')}</small>`
+              : ''
+          }${
+            i.specialInstructions
+              ? `<br><small style="color:#be123c">⚠ ${escapeHtml(i.specialInstructions)}</small>`
+              : ''
+          }</td><td style="text-align:right">${fmtNum(i.itemTotal)} so'm</td></tr>`
+      )
+      .join('');
+    const destination =
+      order.orderType === 'delivery'
+        ? '🛵 Dostavka'
+        : order.orderType === 'pickup'
+        ? '🥡 Olib ketish'
+        : `Stol #${order.tableNumber}`;
+    win.document.write(`
+      <html>
+        <head>
+          <title>Chek — ${escapeHtml(order.id)}</title>
+          <style>
+            @page { margin: 0; }
+            body { font-family: 'Courier New', monospace; box-sizing: border-box; width: 72mm; padding: 4mm; color: #111; font-size: 13px; }
+            h1 { font-size: 16px; text-align: center; margin: 0 0 4px; }
+            .sub { text-align: center; font-size: 11px; color: #555; margin-bottom: 6px; }
+            table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+            td { padding: 3px 0; vertical-align: top; }
+            small { font-size: 10px; }
+            .totals td { border-top: 1px dashed #999; padding-top: 6px; }
+            .grand { font-weight: bold; font-size: 15px; border-top: 2px solid #111 !important; }
+            .footer { text-align: center; margin-top: 16px; font-size: 11px; color: #555; }
+            .print-action { display: block; width: 100%; margin-top: 18px; padding: 10px; border: 0; border-radius: 8px; background: #f97316; color: #fff; font: bold 14px system-ui, sans-serif; cursor: pointer; }
+            @media print { .print-action { display: none; } }
+          </style>
+        </head>
+        <body>
+          ${receiptName ? `<h1>${escapeHtml(receiptName)}</h1>` : ''}
+          <div class="sub">${destination} • ${new Date(order.createdAt).toLocaleString('uz-UZ')}</div>
+          <div class="sub">Buyurtma: ${escapeHtml(order.id)}</div>
+          <table>${itemsHtml}</table>
+          <table class="totals">
+            <tr><td>Oraliq summa</td><td style="text-align:right">${fmtNum(order.subtotal)} so'm</td></tr>
+            ${order.tax > 0 ? `<tr><td>Soliq</td><td style="text-align:right">${fmtNum(order.tax)} so'm</td></tr>` : ''}
+            ${order.serviceCharge > 0 ? `<tr><td>Xizmat haqi</td><td style="text-align:right">${fmtNum(order.serviceCharge)} so'm</td></tr>` : ''}
+            ${order.discount > 0 ? `<tr><td>Chegirma</td><td style="text-align:right">-${fmtNum(order.discount)} so'm</td></tr>` : ''}
+            <tr class="grand"><td>JAMI</td><td style="text-align:right">${fmtNum(order.totalAmount)} so'm</td></tr>
+          </table>
+          <div class="footer">Xaridingiz uchun rahmat!</div>
+          <button class="print-action" type="button" onclick="window.print()">Chop etish</button>
+        </body>
+      </html>
+    `);
+    win.document.close();
+    const openPrintDialog = () => {
+      try {
+        win.focus();
+        win.print();
+      } catch {
+        // The "Chop etish" button in the popup is the fallback.
+      }
+    };
+    if (win.document.readyState === 'complete') {
+      window.setTimeout(openPrintDialog, 100);
+    } else {
+      win.addEventListener('load', () => window.setTimeout(openPrintDialog, 100), { once: true });
+    }
+  };
+
   return (
     <CurrencyProvider>
       <div className="min-h-screen bg-zinc-100 text-zinc-900 font-sans selection:bg-orange-500 selection:text-white">
@@ -905,6 +998,7 @@ export default function StaffApp({ surface }: { surface: Extract<Surface, 'admin
               onCheckTelegramLinkStatus={handleCheckTelegramLinkStatus}
               onUnlinkTelegram={handleUnlinkTelegram}
               telegramLinked={kitchenTelegramLinked}
+              onPrintReceipt={printKitchenReceipt}
             />
           )}
 
